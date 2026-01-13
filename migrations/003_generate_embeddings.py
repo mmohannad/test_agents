@@ -20,11 +20,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Environment variables
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', 'REMOVED_KEY')
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', "aaa")
 EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'text-embedding-3-small')
 EMBEDDING_DIMENSIONS = int(os.getenv('EMBEDDING_DIMENSIONS', '1536'))
 SUPABASE_URL = os.getenv('SUPABASE_URL', 'https://zvvwpbrzxbrkkhugnfkt.supabase.co')
-SUPABASE_KEY = os.getenv('SUPABASE_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp2dndwYnJ6eGJya2todWduZmt0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgyNTY1OTIsImV4cCI6MjA4MzgzMjU5Mn0.kt8IKVzaq_jFOAVCFoHcWAdhMUH6_EB23UTumY9lvi0')
+SUPABASE_KEY = os.getenv('SUPABASE_KEY', 'aa')
 
 # Test article range - use 90001-90006 for test articles
 TEST_ARTICLE_START = 1
