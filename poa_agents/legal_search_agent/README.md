@@ -197,7 +197,7 @@ Create a `.env` file in the agent directory:
 
 ```env
 # OpenAI Configuration
-OPENAI_API_KEY=sk-proj-...your-key...
+OPENAI_API_KEY=YOUR_OPENAI_KEY
 LLM_MODEL=gpt-4o-mini
 EMBEDDING_MODEL=text-embedding-3-small
 EMBEDDING_DIMENSIONS=1536

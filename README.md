@@ -86,7 +86,7 @@ Create `.env` files for each agent:
 
 **`poa_agents/condenser_agent/.env`**:
 ```env
-OPENAI_API_KEY=sk-proj-...your-key...
+OPENAI_API_KEY=YOUR_OPENAI_KEY
 LLM_MODEL=gpt-4o-mini
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=eyJ...your-anon-key...
@@ -94,7 +94,7 @@ SUPABASE_ANON_KEY=eyJ...your-anon-key...
 
 **`poa_agents/legal_search_agent/.env`**:
 ```env
-OPENAI_API_KEY=sk-proj-...your-key...
+OPENAI_API_KEY=YOUR_OPENAI_KEY
 LLM_MODEL=gpt-4o-mini
 EMBEDDING_MODEL=text-embedding-3-small
 EMBEDDING_DIMENSIONS=1536
