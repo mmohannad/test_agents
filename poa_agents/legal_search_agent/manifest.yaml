@@ -1,0 +1,59 @@
+# Agent Manifest Configuration
+# ---------------------------
+# Legal Search Agent: Tier 2 legal research with RAG and decomposition
+
+build:
+  context:
+    root: ../
+    include_paths:
+      - legal_search_agent
+      - shared
+    dockerfile: legal_search_agent/Dockerfile
+    dockerignore: legal_search_agent/.dockerignore
+
+local_development:
+  agent:
+    port: 8013
+    host_address: host.docker.internal
+
+  paths:
+    acp: project/acp.py
+
+agent:
+  acp_type: sync
+  name: legal-search-agent
+  description: Tier 2 legal research agent with RAG - analyzes POA validity using legal corpus
+
+  temporal:
+    enabled: false
+
+  env:
+    # OpenAI Configuration
+    LLM_MODEL: "gpt-4o-mini"
+    EMBEDDING_MODEL: "text-embedding-3-small"
+    EMBEDDING_DIMENSIONS: "1536"
+
+    # Supabase Configuration
+    SUPABASE_URL: "https://zvvwpbrzxbrkkhugnfkt.supabase.co"
+
+    # Search Configuration
+    SIMILARITY_THRESHOLD: "0.3"
+    MAX_ARTICLES_PER_ISSUE: "5"
+
+deployment:
+  image:
+    repository: ""
+    tag: "latest"
+
+  global:
+    agent:
+      name: "legal-search-agent"
+      description: "Tier 2 legal research agent with RAG - analyzes POA validity using legal corpus"
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1000m"
+        memory: "2Gi"

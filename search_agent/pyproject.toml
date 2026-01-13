@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "search_agent"
+version = "0.1.0"
+description = "An AgentEx agent that is able to do semantic search over legal articles and summarize a case"
+requires-python = ">=3.12"
+dependencies = [
+    "agentex-sdk",
+    "scale-gp",
+    "openai>=1.0.0",
+    "azure-identity",
+    "python-dotenv",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "black",
+    "isort",
+    "flake8",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["project"]
+
+[tool.black]
+line-length = 88
+target-version = ['py312']
+
+[tool.isort]
+profile = "black"
+line_length = 88

@@ -1,0 +1,58 @@
+# Agent Manifest Configuration
+# ---------------------------
+# Tier 1 Validation Agent - Deterministic validation checks
+
+build:
+  context:
+    root: ../
+    include_paths:
+      - tier1_validation_agent
+      - shared
+    dockerfile: tier1_validation_agent/Dockerfile
+    dockerignore: tier1_validation_agent/.dockerignore
+
+local_development:
+  agent:
+    port: 8010
+    host_address: host.docker.internal
+  paths:
+    acp: project/acp.py
+    worker: project/run_worker.py
+
+agent:
+  acp_type: agentic
+  name: poa-tier1-validation-agent
+  description: Performs deterministic validation checks on POA applications
+  temporal:
+    enabled: true
+    workflows:
+      - name: poa-tier1-validation-workflow
+        queue_name: poa_tier1_validation_queue
+
+  env:
+    AZURE_OPENAI_ENDPOINT: "https://musam-mixp4m41-eastus2.cognitiveservices.azure.com"
+    AZURE_OPENAI_API_VERSION: "2025-01-01-preview"
+    LLM_MODEL: "gpt-4o"
+    SUPABASE_URL: "https://cjidkejfazctyqhkfmzz.supabase.co"
+
+deployment:
+  image:
+    repository: "agentex.azurecr.io/poa-tier1-validation-agent"
+    tag: "latest"
+
+  imagePullSecrets:
+    - name: "agentex-acr-pull-secret"
+
+  global:
+    agent:
+      name: "poa-tier1-validation-agent"
+      description: "Performs deterministic validation checks on POA applications"
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1000m"
+        memory: "2Gi"
+

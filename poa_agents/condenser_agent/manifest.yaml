@@ -1,0 +1,53 @@
+# Agent Manifest Configuration
+# ---------------------------
+# Condenser Agent: Creates Legal Brief from Case Object for Tier 2 research
+
+build:
+  context:
+    root: ../
+    include_paths:
+      - condenser_agent
+      - shared
+    dockerfile: condenser_agent/Dockerfile
+    dockerignore: condenser_agent/.dockerignore
+
+local_development:
+  agent:
+    port: 8012
+    host_address: host.docker.internal
+
+  paths:
+    acp: project/acp.py
+
+agent:
+  acp_type: sync
+  name: condenser-agent
+  description: Creates a condensed Legal Brief from case facts for Tier 2 legal research
+
+  temporal:
+    enabled: false
+
+  env:
+    # OpenAI Configuration
+    LLM_MODEL: "gpt-4o-mini"
+
+    # Supabase Configuration
+    SUPABASE_URL: "https://zvvwpbrzxbrkkhugnfkt.supabase.co"
+
+deployment:
+  image:
+    repository: ""
+    tag: "latest"
+
+  global:
+    agent:
+      name: "condenser-agent"
+      description: "Creates a condensed Legal Brief from case facts for Tier 2 legal research"
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1000m"
+        memory: "2Gi"
