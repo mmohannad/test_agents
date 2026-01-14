@@ -235,3 +235,97 @@ class LegalSearchSupabaseClient:
         except Exception as e:
             logger.error(f"Failed to save analysis session: {e}")
             return None
+
+    def save_retrieval_artifact(
+        self,
+        artifact: "RetrievalEvalArtifact"
+    ) -> Optional[dict]:
+        """
+        Save a retrieval evaluation artifact for analysis.
+
+        Args:
+            artifact: The RetrievalEvalArtifact dataclass
+
+        Returns:
+            Saved row or None
+        """
+        from project.models.retrieval_state import RetrievalEvalArtifact
+
+        try:
+            # Convert dataclass to dict for storage
+            row = {
+                "artifact_id": artifact.artifact_id,
+                "application_id": artifact.application_id if artifact.application_id != "unknown" else None,
+                "legal_brief": artifact.legal_brief,
+                "decomposed_issues": artifact.decomposed_issues,
+                "config": {
+                    "hyde_enabled": artifact.config.hyde_enabled,
+                    "hyde_num_hypotheticals": artifact.config.hyde_num_hypotheticals,
+                    "max_iterations": artifact.config.max_iterations,
+                    "max_articles": artifact.config.max_articles,
+                    "max_latency_ms": artifact.config.max_latency_ms,
+                    "coverage_threshold": artifact.config.coverage_threshold,
+                    "confidence_threshold": artifact.config.confidence_threshold,
+                    "enable_coverage_check": artifact.config.enable_coverage_check,
+                    "enable_cross_references": artifact.config.enable_cross_references,
+                },
+                "iterations": [
+                    {
+                        "iteration_number": it.iteration_number,
+                        "purpose": it.purpose.value,
+                        "queries": [
+                            {
+                                "query_id": q.query_id,
+                                "query_type": q.query_type,
+                                "query_text": q.query_text,
+                                "query_language": q.query_language,
+                                "hypothetical_generated": q.hypothetical_generated,
+                                "articles_found": q.articles_found,
+                                "similarities": q.similarities,
+                                "hyde_latency_ms": q.hyde_latency_ms,
+                                "embedding_latency_ms": q.embedding_latency_ms,
+                                "search_latency_ms": q.search_latency_ms,
+                                "total_latency_ms": q.total_latency_ms,
+                            }
+                            for q in it.queries
+                        ],
+                        "articles_retrieved": it.articles_retrieved,
+                        "articles_new": it.articles_new,
+                        "cross_refs_found": list(it.cross_refs_found) if it.cross_refs_found else [],
+                        "coverage_before": it.coverage_before,
+                        "coverage_after": it.coverage_after,
+                        "gaps_identified": it.gaps_identified,
+                        "llm_calls": it.llm_calls,
+                        "embedding_calls": it.embedding_calls,
+                        "latency_ms": it.latency_ms,
+                    }
+                    for it in artifact.iterations
+                ],
+                "final_articles": artifact.final_articles,
+                "final_coverage": artifact.final_coverage,
+                "stop_reason": artifact.stop_reason,
+                "stop_iteration": artifact.stop_iteration,
+                "total_iterations": artifact.total_iterations,
+                "total_articles": artifact.total_articles,
+                "total_llm_calls": artifact.total_llm_calls,
+                "total_embedding_calls": artifact.total_embedding_calls,
+                "total_latency_ms": artifact.total_latency_ms,
+                "avg_similarity": float(artifact.avg_similarity) if artifact.avg_similarity else None,
+                "top_3_similarity": float(artifact.top_3_similarity) if artifact.top_3_similarity else None,
+                "coverage_score": float(artifact.coverage_score) if artifact.coverage_score else None,
+                "estimated_cost_usd": float(artifact.estimated_cost_usd) if artifact.estimated_cost_usd else None,
+            }
+
+            response = (
+                self.client.table("retrieval_eval_artifacts")
+                .insert(row)
+                .execute()
+            )
+
+            logger.info(f"Saved retrieval artifact: {artifact.artifact_id}")
+            return response.data[0] if response.data else None
+
+        except Exception as e:
+            logger.error(f"Failed to save retrieval artifact: {e}")
+            # Don't fail the main flow - artifacts are for eval only
+            return None

@@ -1,17 +1,17 @@
 # Legal Search Agent
 
-The Legal Search Agent performs **statute-grounded legal research** on POA applications using RAG (Retrieval-Augmented Generation) to determine validity based on Qatari civil and commercial law.
+The Legal Search Agent performs **statute-grounded legal research** on POA applications using **Agentic RAG** (Retrieval-Augmented Generation) with HyDE to determine validity based on Qatari civil and commercial law.
 
 ## Overview
 
 This is the Tier 2 agent in the SAK AI validation pipeline. It takes a Legal Brief from the Condenser Agent and:
 1. **Decomposes** the case into specific legal sub-issues
-2. **Retrieves** relevant legal articles using semantic search (Arabic embeddings)
+2. **Retrieves** relevant legal articles using **Agentic RAG** (HyDE + iterative refinement)
 3. **Synthesizes** a comprehensive legal opinion with citations
 4. **Determines** validity: VALID, INVALID, VALID_WITH_CONDITIONS, or NEEDS_REVIEW
 
 ```
-Legal Brief  →  [Decomposer]  →  [Retriever (RAG)]  →  [Synthesizer]  →  Legal Opinion
+Legal Brief  →  [Decomposer]  →  [Agentic RAG Loop]  →  [Synthesizer]  →  Legal Opinion
 ```
 
 ## Architecture
@@ -32,32 +32,33 @@ legal_search_agent/
 │   ├── acp.py              # Main ACP handler (entry point)
 │   ├── llm_client.py       # OpenAI client wrapper (chat + embeddings)
 │   ├── supabase_client.py  # Database operations + RAG search
+│   ├── models/
+│   │   ├── __init__.py
+│   │   └── retrieval_state.py  # State models for agentic retrieval
+│   ├── config/
+│   │   └── legal_areas.yaml    # Required legal areas per transaction type
 │   └── components/
 │       ├── __init__.py
-│       ├── decomposer.py   # Breaks case into legal issues
-│       ├── retriever.py    # RAG search for articles
-│       └── synthesizer.py  # Generates legal opinion
+│       ├── decomposer.py       # Breaks case into legal issues
+│       ├── retriever.py        # Legacy retriever (replaced)
+│       ├── hyde_generator.py   # HyDE hypothetical generation
+│       ├── coverage_analyzer.py # Legal area coverage analysis
+│       ├── crossref_expander.py # Cross-reference expansion
+│       ├── retrieval_agent.py  # Agentic RAG orchestrator
+│       └── synthesizer.py      # Generates legal opinion
 ```
 
-## RAG Pipeline
+## Agentic RAG Pipeline
 
 ### Phase 1: Decomposition
 
-The Decomposer analyzes the Legal Brief and generates legal sub-issues:
+The Decomposer analyzes the Legal Brief and generates legal sub-issues with Arabic search queries:
 
 ```json
 {
   "issue_id": "ISSUE_1",
   "category": "grantor_capacity",
   "primary_question": "Does the grantor have authority to delegate these powers?",
-  "sub_questions": [
-    "What is the grantor's authority scope per the Commercial Registry?",
-    "Can a manager with limited authority delegate broader powers?"
-  ],
-  "relevant_facts": [
-    "Grantor is Manager (Passports only)",
-    "POA grants full management powers"
-  ],
   "search_queries_ar": [
     "لا يجوز للموكل أن يمنح الوكيل صلاحيات تزيد عما يملكه",
     "حدود الوكالة",
@@ -67,61 +68,93 @@ The Decomposer analyzes the Legal Brief and generates legal sub-issues:
 }
 ```
 
-**Key Feature**: Search queries are generated in **Arabic** (`search_queries_ar`) for optimal semantic matching against the Arabic legal corpus.
+### Phase 2: Agentic Retrieval (NEW)
 
-### Phase 2: Retrieval (RAG)
+The RetrievalAgent orchestrates a multi-iteration retrieval loop:
 
-The Retriever performs semantic search using:
-- **Embedding Model**: OpenAI `text-embedding-3-small` (1536 dimensions)
-- **Vector Database**: Supabase with pgvector extension
-- **Search Function**: `match_articles` RPC with cosine similarity
-- **Similarity Threshold**: 0.3 (configurable)
-- **Max Articles**: 5 per issue (configurable)
+#### Iteration 1: Broad Retrieval with HyDE
 
-```sql
--- The match_articles function uses Arabic embeddings
-SELECT article_number, text_arabic, text_english,
-       1 - (arabic_embedding <=> query_embedding) as similarity
-FROM articles
-WHERE similarity > threshold
-ORDER BY similarity DESC
-LIMIT 5;
-```
+1. **HyDE Generation**: Convert each legal question into hypothetical Arabic legal articles
+   ```
+   Question: "هل يجوز للموكل تفويض صلاحيات لا يملكها؟"
+
+   HyDE Output:
+   "المادة (هـ): لا يجوز للموكل أن يمنح الوكيل حقوقاً أو صلاحيات
+    تزيد عما يملكه الموكل نفسه من حقوق قانونية أو أهلية..."
+   ```
+
+2. **Semantic Search**: Search with HyDE hypotheticals + direct Arabic queries
+3. **Coverage Analysis**: Check which legal areas are covered
+
+#### Iteration 2: Gap-Filling
+
+1. Identify missing required legal areas (e.g., `delegation_limits`, `capacity`)
+2. Generate targeted queries for each gap
+3. Apply HyDE to gap-filling queries
+4. Search and add new articles
+
+#### Iteration 3: Cross-Reference Expansion
+
+1. Parse retrieved articles for cross-references (e.g., "المادة 5")
+2. Fetch referenced articles directly from database
+3. Enable multi-hop legal reasoning
+
+#### End Conditions
+
+The loop stops when ANY of these conditions is met:
+
+| Condition | Threshold |
+|-----------|-----------|
+| Coverage score | ≥ 80% of required areas |
+| Confidence | ≥ 55% avg similarity + ≥ 65% top-3 |
+| Max iterations | 3 iterations |
+| Max articles | 30 articles |
+| Max latency | 30 seconds |
+| Diminishing returns | ≤ 1 new article in iteration |
 
 ### Phase 3: Synthesis
 
-The Synthesizer generates a comprehensive legal opinion:
+The Synthesizer generates a comprehensive legal opinion with citations.
+
+## Required Legal Areas
+
+The agent ensures coverage of these legal areas (from `config/legal_areas.yaml`):
+
+| Area ID | Arabic Name | Required |
+|---------|-------------|----------|
+| `agency_law` | قانون الوكالة | Yes |
+| `delegation_limits` | حدود التفويض | Yes |
+| `capacity` | الأهلية القانونية | Yes |
+| `commercial_registration` | السجل التجاري | Conditional (if entity) |
+| `formalities` | الشكليات | No |
+| `poa_scope` | نطاق الوكالة | No |
+
+## Evaluation Artifacts
+
+Every retrieval run saves a detailed artifact to `retrieval_eval_artifacts` table:
 
 ```json
 {
-  "overall_finding": "INVALID",
-  "confidence_score": 0.85,
-  "confidence_level": "HIGH",
-  "decision_bucket": "invalid",
-  "opinion_summary_en": "The POA is INVALID because the grantor (Hamza Awad) is attempting to delegate powers he does not possess...",
-  "opinion_summary_ar": "الوكالة باطلة لأن الموكل (حمزة عوض) يحاول تفويض صلاحيات لا يملكها...",
-  "findings": [
+  "artifact_id": "uuid",
+  "iterations": [
     {
-      "issue_id": "ISSUE_1",
-      "finding": "NOT_SUPPORTED",
-      "confidence": 0.9,
-      "reasoning": "Per Article 2 of Civil Code, a principal cannot grant more authority than they possess..."
+      "iteration_number": 1,
+      "purpose": "broad_retrieval",
+      "queries": [
+        {
+          "query_text": "حدود الوكالة",
+          "hypothetical_generated": "المادة (هـ): ...",
+          "articles_found": [90001, 90002],
+          "similarities": [0.72, 0.68]
+        }
+      ],
+      "coverage_before": {"agency_law": "missing", ...},
+      "coverage_after": {"agency_law": "covered", ...}
     }
   ],
-  "all_citations": [
-    {
-      "article_number": 2,
-      "text_english": "The principal may not grant the agent rights or authorities exceeding...",
-      "similarity": 0.716
-    }
-  ],
-  "concerns": [
-    "Grantor's CR authority is 'Passports' but POA grants full management"
-  ],
-  "recommendations": [
-    "Reject this POA application",
-    "Require POA from authorized manager with full authority"
-  ]
+  "stop_reason": "coverage_threshold_met",
+  "coverage_score": 0.85,
+  "avg_similarity": 0.65
 }
 ```
 
@@ -143,8 +176,7 @@ The agent loads the Legal Brief from the `legal_briefs` table.
   "legal_brief": {
     "parties": [...],
     "entity_information": {...},
-    "poa_details": {...},
-    "open_questions": [...]
+    "poa_details": {...}
   }
 }
 ```
@@ -152,10 +184,11 @@ The agent loads the Legal Brief from the `legal_briefs` table.
 ### Output: Legal Opinion
 
 The agent produces:
-1. **Formatted Display** - Markdown with verdict, analysis, citations
+1. **Formatted Display** - Markdown with verdict, analysis, citations, retrieval metrics
 2. **JSON Storage** - Full opinion saved to `legal_opinions` table
+3. **Eval Artifact** - Full retrieval trace saved to `retrieval_eval_artifacts`
 
-#### UI Display Format
+#### UI Display Format (with Retrieval Metrics)
 
 ```markdown
 # ❌ Legal Research Opinion
@@ -168,27 +201,27 @@ The agent produces:
 ## Decision
 
 ### ❌ Finding: **INVALID**
-### Decision Bucket: **INVALID**
 ### Confidence: **85%** (HIGH)
 
 ---
 
-## Opinion Summary
+## Verification Metrics
 
-The Power of Attorney is INVALID. The grantor, Hamza Awad, holds only
-"Passports" authority per the Commercial Registry, but is attempting
-to grant the agent (Hussein Motaz) full management powers including
-contract signing and government representation...
+- **Grounding Score:** 85%
+- **Retrieval Coverage:** 100%
 
----
+### Agentic Retrieval Details
 
-## Legal Citations
-
-### Article 2
-*Civil Code - Agency*
-> The principal may not grant the agent rights or authorities exceeding
-> what the principal himself possesses in terms of legal rights or capacity...
-*Similarity: 72%*
+- **Iterations:** 2
+- **Stop Reason:** coverage_threshold_met
+- **Articles Retrieved:** 12
+- **Coverage Score:** 85%
+- **Avg Similarity:** 65%
+- **Top-3 Similarity:** 78%
+- **LLM Calls (HyDE):** 4
+- **Embedding Calls:** 8
+- **Latency:** 5230ms
+- **Est. Cost:** $0.0052
 ```
 
 ## Environment Variables
@@ -225,108 +258,65 @@ agentex dev
 
 The agent will start on `http://localhost:8013`.
 
-### Using the Agentex UI
+### Database Migrations
 
-1. Open the Agentex UI (typically `http://localhost:3000`)
-2. Select "legal-search-agent" from the agent list
-3. Send a message with the application ID:
-   ```json
-   {"application_id": "a0000001-1111-2222-3333-444444444444"}
-   ```
-4. The agent will respond with the legal opinion
-
-### End-to-End Test
+Run the retrieval artifacts migration:
 
 ```bash
-# 1. Run Condenser Agent first to create Legal Brief
-# In Agentex UI, select condenser-agent:
-{"application_id": "a0000001-1111-2222-3333-444444444444"}
-
-# 2. Then run Legal Search Agent
-# In Agentex UI, select legal-search-agent:
-{"application_id": "a0000001-1111-2222-3333-444444444444"}
+# In Supabase SQL Editor, run:
+migrations/003_retrieval_eval_artifacts.sql
 ```
-
-## Database Schema
-
-### Input Tables
-
-#### `legal_briefs`
-Created by Condenser Agent:
-- `brief_content` (JSONB) - Structured case facts
-- `issues_to_analyze` - Open questions for research
-
-#### `articles`
-Legal corpus with embeddings:
-- `article_number` - Primary key
-- `text_arabic` - Arabic article text
-- `text_english` - English translation
-- `embedding` - English embedding (vector 1536)
-- `arabic_embedding` - Arabic embedding (vector 1536)
-- `hierarchy_path` - Law/chapter/section structure
-
-### Output Tables
-
-#### `legal_opinions`
-Stores the research results:
-- `finding` - VALID, INVALID, etc.
-- `confidence_score` - 0.0 to 1.0
-- `summary_ar`, `summary_en` - Opinion summaries
-- `full_analysis` (JSONB) - Complete opinion
-- `legal_citations` (JSONB) - Referenced articles
-- `grounding_score` - How well-grounded in citations
-
-### `match_articles` RPC Function
-
-```sql
-CREATE FUNCTION match_articles(
-    query_embedding vector(1536),
-    match_threshold float,
-    match_count int,
-    language text DEFAULT 'english'
-) RETURNS TABLE (
-    article_number integer,
-    hierarchy_path jsonb,
-    text_arabic text,
-    text_english text,
-    similarity float
-)
-```
-
-Uses dynamic SQL to select either `embedding` (English) or `arabic_embedding` (Arabic) based on the `language` parameter.
 
 ## Component Details
+
+### HydeGenerator (`components/hyde_generator.py`)
+
+- **Purpose**: Generate hypothetical Arabic legal articles
+- **LLM Model**: GPT-4o-mini (temperature: 0.7)
+- **Output Format**: Articles starting with "المادة (هـ):"
+- **Key Feature**: Bridges query-document semantic gap
+
+### CoverageAnalyzer (`components/coverage_analyzer.py`)
+
+- **Purpose**: Track which legal areas are covered
+- **Input**: List of articles + required areas config
+- **Output**: Coverage status per area (covered/weak/missing)
+- **Gaps**: Identifies missing areas with suggested queries
+
+### CrossRefExpander (`components/crossref_expander.py`)
+
+- **Purpose**: Parse cross-references from Arabic legal text
+- **Patterns**: Detects "المادة (5)", "وفقاً للمادة", "انظر المادة", etc.
+- **Output**: Fetches referenced articles for multi-hop reasoning
+
+### RetrievalAgent (`components/retrieval_agent.py`)
+
+- **Purpose**: Orchestrate the agentic RAG loop
+- **Iterations**: Up to 3 (broad → gap-filling → reference expansion)
+- **State**: Tracks articles, coverage, queries tried
+- **Artifact**: Saves full trace for evaluation
 
 ### Decomposer (`components/decomposer.py`)
 
 - **Purpose**: Break Legal Brief into researchable legal issues
 - **LLM Model**: GPT-4o-mini (temperature: 0.2)
 - **Output**: List of issues with Arabic search queries
-- **Key Feature**: Generates search queries in Arabic for better RAG matching
-
-### Retriever (`components/retriever.py`)
-
-- **Purpose**: Find relevant articles using semantic search
-- **Search Strategy**: Uses Arabic queries against Arabic embeddings
-- **Deduplication**: By article number, keeps highest similarity
-- **Fallback**: If semantic search fails, returns top N active articles
 
 ### Synthesizer (`components/synthesizer.py`)
 
 - **Purpose**: Generate comprehensive legal opinion from evidence
 - **LLM Model**: GPT-4o-mini (temperature: 0.2, max_tokens: 4000)
 - **Citation Requirements**: Every conclusion must cite specific articles
-- **Output Languages**: English + Arabic summaries
 
 ## Verification Metrics
-
-The agent calculates several quality metrics:
 
 | Metric | Description |
 |--------|-------------|
 | `grounding_score` | % of findings supported by article citations |
-| `retrieval_coverage` | % of issues with retrieved evidence |
+| `retrieval_coverage` | Coverage score from agentic retrieval |
 | `confidence_score` | Overall confidence in the verdict |
+| `avg_similarity` | Average similarity across all retrieved articles |
+| `top_3_similarity` | Average similarity of top 3 articles |
 
 ## Decision Buckets
 
@@ -337,37 +327,23 @@ The agent calculates several quality metrics:
 | `invalid` | POA is legally invalid, must reject |
 | `needs_review` | Insufficient evidence, requires SME |
 
-## Error Handling
+## Testing RAG Quality
 
-- Missing Legal Brief returns guidance to run Condenser first
-- Failed semantic search falls back to keyword-based retrieval
-- JSON parsing errors return partial analysis with raw LLM output
-- All errors are logged with full stack traces
+Check the retrieval metrics in the output:
 
-## Development
-
-### Key Files
-
-| File | Purpose |
-|------|---------|
-| `acp.py` | Orchestrates 4-phase pipeline, formats output |
-| `decomposer.py` | LLM prompts for issue generation |
-| `retriever.py` | RAG search with Arabic embeddings |
-| `synthesizer.py` | LLM prompts for opinion generation |
-| `llm_client.py` | OpenAI client for chat + embeddings |
-| `supabase_client.py` | Database queries + semantic search |
-
-### Testing RAG Quality
-
-Check similarity scores in the output:
+### Similarity Scores
 - **> 70%**: Excellent match (high confidence)
 - **50-70%**: Good match (moderate confidence)
 - **30-50%**: Fair match (low confidence)
 - **< 30%**: Below threshold (not returned)
 
-### Improving RAG Results
+### Coverage Score
+- **> 80%**: All required legal areas covered
+- **50-80%**: Partial coverage, may need gap-filling
+- **< 50%**: Poor coverage, needs more iterations
 
-1. Use Arabic search queries (already implemented)
-2. Ensure articles have Arabic embeddings populated
-3. Tune similarity threshold based on corpus size
-4. Consider re-ranking with cross-encoder
+### Stop Reasons
+- `coverage_threshold_met`: Ideal - found enough evidence
+- `confidence_threshold_met`: Good - high quality matches
+- `max_iterations_reached`: May need larger corpus
+- `diminishing_returns`: Corpus may not have relevant articles

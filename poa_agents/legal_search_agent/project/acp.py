@@ -34,10 +34,11 @@ if str(_parent_dir) not in sys.path:
     sys.path.insert(0, str(_parent_dir))
 
 from project.components.decomposer import Decomposer
-from project.components.retriever import ArticleRetriever
+from project.components.retrieval_agent import RetrievalAgent
 from project.components.synthesizer import Synthesizer
 from project.supabase_client import LegalSearchSupabaseClient
 from project.llm_client import LegalSearchLLMClient
+from project.models.retrieval_state import RetrievalConfig, ArticleResult
 
 logger = make_logger(__name__)
 logger.info(f"Loaded environment from {env_path}")
@@ -46,7 +47,7 @@ logger.info(f"Loaded environment from {env_path}")
 _supabase_client: Optional[LegalSearchSupabaseClient] = None
 _llm_client: Optional[LegalSearchLLMClient] = None
 _decomposer: Optional[Decomposer] = None
-_retriever: Optional[ArticleRetriever] = None
+_retrieval_agent: Optional[RetrievalAgent] = None
 _synthesizer: Optional[Synthesizer] = None
 
 
@@ -71,11 +72,27 @@ def get_decomposer() -> Decomposer:
     return _decomposer
 
 
-def get_retriever() -> ArticleRetriever:
-    global _retriever
-    if _retriever is None:
-        _retriever = ArticleRetriever(get_llm_client(), get_supabase_client())
-    return _retriever
+def get_retrieval_agent() -> RetrievalAgent:
+    """Get the agentic retrieval system with HyDE and iterative refinement."""
+    global _retrieval_agent
+    if _retrieval_agent is None:
+        config = RetrievalConfig(
+            hyde_enabled=True,
+            hyde_num_hypotheticals=2,
+            max_iterations=3,
+            max_articles=30,
+            max_latency_ms=600000,  # 60 seconds to allow HyDE generation time
+            coverage_threshold=0.8,
+            confidence_threshold=0.55,
+            enable_coverage_check=True,
+            enable_cross_references=True,
+        )
+        _retrieval_agent = RetrievalAgent(
+            get_llm_client(),
+            get_supabase_client(),
+            config
+        )
+    return _retrieval_agent
 
 
 def get_synthesizer() -> Synthesizer:
@@ -85,14 +102,35 @@ def get_synthesizer() -> Synthesizer:
     return _synthesizer
 
 
+def article_result_to_dict(article: ArticleResult) -> dict:
+    """Convert ArticleResult to dict format expected by synthesizer."""
+    return {
+        "article_number": article.article_number,
+        "text_arabic": article.text_arabic,
+        "text_english": article.text_english,
+        "text_ar": article.text_arabic,  # Alias for compatibility
+        "text_en": article.text_english,  # Alias for compatibility
+        "hierarchy_path": article.hierarchy_path,
+        "similarity": article.similarity,
+        "found_by_query": article.found_by_query,
+        "found_in_iteration": article.found_in_iteration,
+        "is_cross_reference": article.is_cross_reference,
+        "matched_legal_areas": article.matched_legal_areas,
+    }
+
+
 # Create ACP server
 acp = FastACP.create(acp_type="sync")
 
 
 HELP_MESSAGE = """
-**Legal Search Agent (Tier 2)**
+**Legal Search Agent (Tier 2) - Agentic RAG**
 
-Performs statute-grounded legal research on POA cases.
+Performs statute-grounded legal research on POA cases using:
+- **HyDE** (Hypothetical Document Embeddings) for Arabic legal search
+- **Agentic RAG Loop** with iterative refinement
+- **Coverage Analysis** for comprehensive legal area coverage
+- **Cross-Reference Expansion** for multi-hop reasoning
 
 **Input formats:**
 
@@ -108,9 +146,14 @@ Performs statute-grounded legal research on POA cases.
 
 The agent will:
 1. Decompose the case into legal sub-issues
-2. Search the legal corpus for relevant articles
+2. **Agentic Retrieval** (up to 3 iterations):
+   - Iteration 1: Broad retrieval with HyDE hypotheticals
+   - Iteration 2: Gap-filling for missing legal areas
+   - Iteration 3: Cross-reference expansion
 3. Synthesize findings into a legal opinion
 4. Return decision: valid, invalid, valid_with_remediations, or needs_review
+
+Retrieval artifacts are saved for evaluation and debugging.
 """
 
 
@@ -141,7 +184,7 @@ async def handle_message_send(
 
         supabase = get_supabase_client()
         decomposer = get_decomposer()
-        retriever = get_retriever()
+        retrieval_agent = get_retrieval_agent()
         synthesizer = get_synthesizer()
 
         application_id = input_data.get("application_id")
@@ -176,28 +219,47 @@ async def handle_message_send(
         logger.info(f"Decomposed into {len(issues)} legal issues")
 
         # ========================================
-        # PHASE 2: RETRIEVAL (RAG)
+        # PHASE 2: AGENTIC RETRIEVAL (HyDE + RAG Loop)
         # ========================================
-        logger.info("Phase 2: Retrieving relevant articles...")
+        logger.info("Phase 2: Agentic retrieval with HyDE and iterative refinement...")
 
+        # Run the agentic retrieval loop
+        article_results, retrieval_artifact = await retrieval_agent.retrieve(
+            issues=issues,
+            legal_brief=legal_brief,
+            application_id=application_id or "direct_input"
+        )
+
+        logger.info(f"Agentic retrieval complete:")
+        logger.info(f"  - Iterations: {retrieval_artifact.total_iterations}")
+        logger.info(f"  - Articles: {retrieval_artifact.total_articles}")
+        logger.info(f"  - Stop reason: {retrieval_artifact.stop_reason}")
+        logger.info(f"  - Coverage score: {retrieval_artifact.coverage_score:.0%}")
+        logger.info(f"  - Avg similarity: {retrieval_artifact.avg_similarity:.0%}")
+
+        # Save retrieval artifact for evaluation (non-blocking)
+        try:
+            supabase.save_retrieval_artifact(retrieval_artifact)
+        except Exception as e:
+            logger.warning(f"Could not save retrieval artifact: {e}")
+
+        # Convert ArticleResults to dicts for synthesizer
+        unique_articles = [article_result_to_dict(art) for art in article_results]
+
+        # Build issue_evidence mapping from article's matched_legal_areas
         issue_evidence = {}
-        all_articles = []
-
         for issue in issues:
-            logger.info(f"Searching for issue: {issue['issue_id']} - {issue['category']}")
-            articles = await retriever.search_for_issue(issue)
-            issue_evidence[issue["issue_id"]] = articles
-            all_articles.extend(articles)
-
-            logger.info(f"Found {len(articles)} articles for {issue['issue_id']}")
-
-        # Deduplicate articles
-        seen_articles = set()
-        unique_articles = []
-        for article in all_articles:
-            if article["article_number"] not in seen_articles:
-                seen_articles.add(article["article_number"])
-                unique_articles.append(article)
+            issue_id = issue.get("issue_id", "unknown")
+            # Find articles relevant to this issue based on matched areas
+            issue_articles = [
+                article_result_to_dict(art)
+                for art in article_results
+                if any(area in art.matched_legal_areas for area in [issue.get("category", "")])
+            ]
+            # If no matches by area, use all articles (fallback)
+            if not issue_articles:
+                issue_articles = unique_articles[:5]
+            issue_evidence[issue_id] = issue_articles
 
         logger.info(f"Total unique articles retrieved: {len(unique_articles)}")
 
@@ -219,9 +281,23 @@ async def handle_message_send(
         opinion["generated_at"] = datetime.now().isoformat()
         opinion["issues_analyzed"] = issues
 
+        # Add retrieval metrics from agentic loop
+        opinion["retrieval_metrics"] = {
+            "total_iterations": retrieval_artifact.total_iterations,
+            "total_articles": retrieval_artifact.total_articles,
+            "stop_reason": retrieval_artifact.stop_reason,
+            "coverage_score": retrieval_artifact.coverage_score,
+            "avg_similarity": retrieval_artifact.avg_similarity,
+            "top_3_similarity": retrieval_artifact.top_3_similarity,
+            "total_llm_calls": retrieval_artifact.total_llm_calls,
+            "total_embedding_calls": retrieval_artifact.total_embedding_calls,
+            "total_latency_ms": retrieval_artifact.total_latency_ms,
+            "estimated_cost_usd": retrieval_artifact.estimated_cost_usd,
+        }
+
         # Calculate metrics
         issues_with_articles = sum(1 for eid, arts in issue_evidence.items() if arts)
-        opinion["retrieval_coverage"] = issues_with_articles / len(issues) if issues else 0
+        opinion["retrieval_coverage"] = retrieval_artifact.coverage_score if retrieval_artifact.coverage_score else (issues_with_articles / len(issues) if issues else 0)
 
         # ========================================
         # PHASE 4: SAVE RESULTS
@@ -415,6 +491,7 @@ def format_legal_opinion(opinion: dict) -> str:
             lines.append("")
 
     # Verification Metrics
+    retrieval_metrics = opinion.get("retrieval_metrics", {})
     lines.extend([
         "---",
         "",
@@ -422,6 +499,19 @@ def format_legal_opinion(opinion: dict) -> str:
         "",
         f"- **Grounding Score:** {opinion.get('grounding_score', 0):.0%}",
         f"- **Retrieval Coverage:** {opinion.get('retrieval_coverage', 0):.0%}",
+        "",
+        "### Agentic Retrieval Details",
+        "",
+        f"- **Iterations:** {retrieval_metrics.get('total_iterations', 'N/A')}",
+        f"- **Stop Reason:** {retrieval_metrics.get('stop_reason', 'N/A')}",
+        f"- **Articles Retrieved:** {retrieval_metrics.get('total_articles', 'N/A')}",
+        f"- **Coverage Score:** {retrieval_metrics.get('coverage_score', 0):.0%}" if retrieval_metrics.get('coverage_score') else "- **Coverage Score:** N/A",
+        f"- **Avg Similarity:** {retrieval_metrics.get('avg_similarity', 0):.0%}" if retrieval_metrics.get('avg_similarity') else "- **Avg Similarity:** N/A",
+        f"- **Top-3 Similarity:** {retrieval_metrics.get('top_3_similarity', 0):.0%}" if retrieval_metrics.get('top_3_similarity') else "- **Top-3 Similarity:** N/A",
+        f"- **LLM Calls (HyDE):** {retrieval_metrics.get('total_llm_calls', 'N/A')}",
+        f"- **Embedding Calls:** {retrieval_metrics.get('total_embedding_calls', 'N/A')}",
+        f"- **Latency:** {retrieval_metrics.get('total_latency_ms', 'N/A')}ms",
+        f"- **Est. Cost:** ${retrieval_metrics.get('estimated_cost_usd', 0):.4f}" if retrieval_metrics.get('estimated_cost_usd') else "- **Est. Cost:** N/A",
         ""
     ])
 

@@ -1,0 +1,207 @@
+# Legal Areas Configuration for POA Validation
+# These define the required coverage areas for comprehensive legal research
+
+legal_areas:
+  agency_law:
+    name_en: "Agency Law"
+    name_ar: "قانون الوكالة"
+    description: "General principles of agency and delegation"
+    required: true
+    min_articles: 1
+    min_similarity: 0.5
+    keywords_ar:
+      - "وكالة"
+      - "موكل"
+      - "وكيل"
+      - "تفويض"
+      - "توكيل"
+    keywords_en:
+      - "agency"
+      - "principal"
+      - "agent"
+      - "delegation"
+      - "power of attorney"
+    template_queries_ar:
+      - "أحكام الوكالة في القانون المدني"
+      - "شروط صحة عقد الوكالة"
+
+  delegation_limits:
+    name_en: "Delegation Limits"
+    name_ar: "حدود التفويض"
+    description: "Rules about what can and cannot be delegated"
+    required: true
+    min_articles: 1
+    min_similarity: 0.5
+    keywords_ar:
+      - "حدود"
+      - "نطاق"
+      - "تجاوز"
+      - "يزيد عما"
+      - "لا يجوز"
+      - "صلاحيات"
+    keywords_en:
+      - "limits"
+      - "scope"
+      - "exceed"
+      - "beyond"
+      - "authority"
+    template_queries_ar:
+      - "لا يجوز للموكل أن يمنح الوكيل صلاحيات تزيد"
+      - "حدود الوكالة وتجاوزها"
+      - "نطاق صلاحيات الوكيل"
+
+  capacity:
+    name_en: "Legal Capacity"
+    name_ar: "الأهلية القانونية"
+    description: "Requirements for legal capacity to act"
+    required: true
+    min_articles: 1
+    min_similarity: 0.5
+    keywords_ar:
+      - "أهلية"
+      - "سلطة"
+      - "صلاحية"
+      - "قدرة"
+      - "أداء"
+    keywords_en:
+      - "capacity"
+      - "competence"
+      - "authority"
+      - "ability"
+    template_queries_ar:
+      - "أهلية الموكل في الوكالة"
+      - "شروط الأهلية للتصرف القانوني"
+
+  commercial_registration:
+    name_en: "Commercial Registration"
+    name_ar: "السجل التجاري"
+    description: "Rules about company representation and CR authority"
+    required: false  # Only required if case involves company
+    conditional_on: "entity_involved"
+    min_articles: 1
+    min_similarity: 0.4
+    keywords_ar:
+      - "سجل تجاري"
+      - "شركة"
+      - "مدير"
+      - "مفوض بالتوقيع"
+      - "تأسيس"
+    keywords_en:
+      - "commercial register"
+      - "company"
+      - "manager"
+      - "authorized signatory"
+      - "incorporation"
+    template_queries_ar:
+      - "صلاحيات المدير في السجل التجاري"
+      - "تمثيل الشركة أمام الغير"
+      - "حدود صلاحيات المدير في الشركة"
+
+  formalities:
+    name_en: "Formalities"
+    name_ar: "الشكليات"
+    description: "Formal requirements for valid POA"
+    required: false
+    min_articles: 1
+    min_similarity: 0.4
+    keywords_ar:
+      - "شكل"
+      - "توثيق"
+      - "كتابة"
+      - "رسمي"
+      - "تصديق"
+    keywords_en:
+      - "form"
+      - "notarization"
+      - "writing"
+      - "official"
+      - "authentication"
+    template_queries_ar:
+      - "الشكل الرسمي للوكالة"
+      - "توثيق الوكالة"
+
+  poa_scope:
+    name_en: "POA Scope"
+    name_ar: "نطاق الوكالة"
+    description: "Rules about general vs special POA scope"
+    required: false
+    min_articles: 1
+    min_similarity: 0.4
+    keywords_ar:
+      - "وكالة عامة"
+      - "وكالة خاصة"
+      - "نطاق"
+      - "أعمال"
+      - "تصرفات"
+    keywords_en:
+      - "general power"
+      - "special power"
+      - "scope"
+      - "acts"
+      - "transactions"
+    template_queries_ar:
+      - "الفرق بين الوكالة العامة والخاصة"
+      - "نطاق الوكالة الخاصة"
+
+  validity:
+    name_en: "Validity & Nullity"
+    name_ar: "الصحة والبطلان"
+    description: "Conditions for validity and causes of nullity"
+    required: false
+    min_articles: 1
+    min_similarity: 0.4
+    keywords_ar:
+      - "صحة"
+      - "باطل"
+      - "بطلان"
+      - "فسخ"
+      - "إلغاء"
+    keywords_en:
+      - "valid"
+      - "void"
+      - "nullity"
+      - "rescission"
+      - "cancellation"
+    template_queries_ar:
+      - "بطلان الوكالة"
+      - "أسباب بطلان التصرف القانوني"
+
+# Transaction type specific requirements
+transaction_requirements:
+  POA_SPECIAL_COMPANY:
+    required_areas:
+      - agency_law
+      - delegation_limits
+      - capacity
+      - commercial_registration
+    conditional_areas:
+      - formalities
+      - poa_scope
+
+  POA_GENERAL:
+    required_areas:
+      - agency_law
+      - delegation_limits
+      - capacity
+    conditional_areas:
+      - formalities
+      - validity
+
+  POA_SPECIAL:
+    required_areas:
+      - agency_law
+      - delegation_limits
+      - capacity
+      - poa_scope
+    conditional_areas:
+      - formalities
+
+# Default for unknown transaction types
+default_requirements:
+  required_areas:
+    - agency_law
+    - delegation_limits
+    - capacity
+  conditional_areas:
+    - formalities
+    - validity

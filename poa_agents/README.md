@@ -307,71 +307,19 @@ See **`agents_plan.md`** for the complete redesigned architecture based on the M
 
 The system has 11 test POA applications in Supabase:
 
-| # | Case Number | Transaction Type | Expected Outcome |
-|---|-------------|------------------|------------------|
-| 1 | SAK-2024-POA-00001 | GENERAL_POA | ✅ VALID |
-| 2 | SAK-2024-POA-00002 | SPECIAL_POA_PROPERTY | ✅ VALID |
-| 3 | SAK-2024-POA-00003 | SPECIAL_POA_GOVT | ❌ TIER 1 FAIL (missing QID) |
-| 4 | SAK-2024-POA-00004 | SPECIAL_POA_COMPANY | ✅ VALID |
-| 5 | SAK-2024-POA-00005 | SPECIAL_POA_COMPANY | ⚠️ REQUIRES_REVIEW |
-| 6 | SAK-2024-POA-00006 | SPECIAL_POA_INHERITANCE | ⚠️ REQUIRES_REVIEW |
-| 7 | SAK-2024-POA-00007 | GENERAL_POA | ❌ TIER 1 FAIL (expired QID) |
-| 8 | SAK-2024-POA-00008 | SPECIAL_POA_PROPERTY | ✅ VALID |
-| 9 | SAK-2024-POA-00009 | SPECIAL_POA_GOVT | ❌ TIER 2 FAIL (sub-delegation) |
-| 10 | SAK-2024-POA-00010 | GENERAL_POA_CASES | ❌ TIER 2 FAIL (unlicensed attorney) |
-| 11 | SAK-2024-POA-00011 | - | ❌ TIER 2 FAIL (minor grantor) |
-
-**Quick test commands:**
-```bash
-# Test a passing case
-curl -X POST http://localhost:5003/agents/name/poa-tier1-validation-agent/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"task/create","params":{"params":{"sak_case_number":"SAK-2024-POA-00002"}},"id":1}'
-
-# Test a failing case (missing QID)
-curl -X POST http://localhost:5003/agents/name/poa-tier1-validation-agent/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"task/create","params":{"params":{"sak_case_number":"SAK-2024-POA-00003"}},"id":1}'
-```
-
----
-
-## Supabase Database Schema
-
-### Key Tables
-
-| Table | Purpose |
-|-------|---------|
-| `applications` | POA applications with case numbers |
-| `personal_parties` | Individual/entity party records |
-| `application_party_roles` | Links parties to applications with roles (grantor, agent, etc.) |
-| `attachments` | Uploaded documents |
-| `poa_extractions` | Structured data extracted from POA documents |
-| `transaction_configs` | Per-transaction-type validation requirements |
-| `validation_reports` | **Tier 1 results go here** |
-| `legal_opinions` | Tier 2 legal opinions |
-| `research_traces` | Tier 2 research audit trail |
-| `escalations` | Cases escalated for human review |
-
-### Checking Results
-
-```sql
--- Latest validation report for a case
-SELECT vr.*, a.sak_case_number 
-FROM validation_reports vr
-JOIN applications a ON a.id = vr.application_id
-WHERE a.sak_case_number = 'SAK-2024-POA-00001'
-ORDER BY vr.created_at DESC LIMIT 1;
-
--- All failed validations
-SELECT a.sak_case_number, vr.verdict, vr.blocking_failures, vr.can_proceed_to_tier2
-FROM validation_reports vr
-JOIN applications a ON a.id = vr.application_id
-WHERE vr.verdict = 'FAIL'
-ORDER BY vr.created_at DESC;
-```
-
----
+| # | Case | Expected Outcome |
+|---|------|-----------------|
+| 1 | SAK-2024-POA-00001 | ✅ VALID |
+| 2 | SAK-2024-POA-00002 | ✅ VALID |
+| 3 | SAK-2024-POA-00003 | ❌ TIER 1 FAIL (missing QID) |
+| 4 | SAK-2024-POA-00004 | ✅ VALID |
+| 5 | SAK-2024-POA-00005 | ⚠️ REQUIRES_REVIEW |
+| 6 | SAK-2024-POA-00006 | ⚠️ REQUIRES_REVIEW |
+| 7 | SAK-2024-POA-00007 | ❌ TIER 1 FAIL (expired QID) |
+| 8 | SAK-2024-POA-00008 | ✅ VALID |
+| 9 | SAK-2024-POA-00009 | ❌ TIER 2 FAIL (sub-delegation prohibited) |
+| 10 | SAK-2024-POA-00010 | ❌ TIER 2 FAIL (unlicensed attorney) |
+| 11 | SAK-2024-POA-00011 | ❌ TIER 2 FAIL (minor grantor) |
 
 ## Configuration
 
