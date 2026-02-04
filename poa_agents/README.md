@@ -5,15 +5,15 @@ Multi-agent system for Power of Attorney (POA) validation with a web frontend.
 ## Architecture
 
 ```
-Browser :3000  ──>  Next.js Frontend
-                        |
-                        |── Supabase (loads application context)
-                        |
-                        |──>  Condenser Agent :8012   (Step 1: Legal Brief)
-                        |         └── Azure OpenAI LLM
-                        |
-                        └──>  Legal Search Agent :8013 (Step 2: Legal Opinion)
-                                  └── Agentic RAG + Azure OpenAI
+Browser  ──>  Next.js Frontend
+                   |
+                   |── Supabase (loads application context)
+                   |
+                   |──>  Condenser Agent    (Step 1: Legal Brief)
+                   |         └── OpenAI LLM
+                   |
+                   └──>  Legal Search Agent (Step 2: Legal Opinion)
+                             └── Agentic RAG + OpenAI
 ```
 
 **Flow:** Load application context from Supabase -> inspect/edit in split-view UI -> run condenser agent (produces Legal Brief) -> auto-chain to legal search agent (produces Legal Opinion with citations) -> view results.
@@ -22,17 +22,15 @@ Both agents use the AgentEx ACP protocol (JSON-RPC 2.0 over `POST /api`). The fr
 
 ---
 
-## Quick Start
+## Quick Start (Local Development)
 
 ### Prerequisites
 
 - Python 3.11+
 - Node.js >= 18
-- `agentex` CLI (`pip install agentex`)
+- `agentex` CLI (`pip install agentex-sdk`)
 
 ### 1. Configure environment
-
-Copy `.env.example` files and fill in secrets:
 
 ```bash
 cp condenser_agent/.env.example condenser_agent/.env
@@ -43,10 +41,8 @@ Required variables in each agent `.env`:
 
 | Variable | Description |
 |----------|-------------|
-| `AZURE_OPENAI_API_KEY` | Azure OpenAI API key |
-| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint URL |
-| `AZURE_OPENAI_API_VERSION` | API version (e.g. `2024-02-15-preview`) |
-| `LLM_MODEL` | Deployment name (e.g. `gpt-4o`) |
+| `OPENAI_API_KEY` | OpenAI API key |
+| `LLM_MODEL` | Model name (e.g. `gpt-4o`) |
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_ANON_KEY` | Supabase anonymous key |
 
@@ -54,9 +50,9 @@ Legal search agent also needs:
 
 | Variable | Description |
 |----------|-------------|
-| `EMBEDDING_MODEL` | Embedding model deployment name |
-| `SIMILARITY_THRESHOLD` | Min similarity for article retrieval (e.g. `0.75`) |
-| `MAX_ARTICLES_PER_ISSUE` | Max articles per legal issue (e.g. `10`) |
+| `EMBEDDING_MODEL` | Embedding model (e.g. `text-embedding-3-small`) |
+| `SIMILARITY_THRESHOLD` | Min similarity for article retrieval (e.g. `0.3`) |
+| `MAX_ARTICLES_PER_ISSUE` | Max articles per legal issue (e.g. `5`) |
 
 Frontend env (`frontend/.env.local`):
 
@@ -85,8 +81,6 @@ This starts all three services:
 | Legal Search Agent | 8013 | Produces Legal Opinion via agentic RAG |
 | Frontend | 3000 | Next.js web UI |
 
-The script waits for all services to be ready before printing URLs.
-
 ### 4. Stop everything
 
 ```bash
@@ -97,9 +91,74 @@ Or press `Ctrl+C` in the terminal running `./dev.sh`.
 
 ---
 
-## Manual Startup
+## Deploy to Railway
 
-If you prefer to start services individually:
+Railway gives you git-push deploys with automatic HTTPS -- no VM, no reverse proxy, no domain setup.
+
+### How it works
+
+Each service gets its own Dockerfile. Railway builds and runs them as separate services in one project. The frontend talks to agents via Railway's private networking (internal URLs, no public exposure needed for agents).
+
+### Setup steps
+
+1. **Create a Railway project** at [railway.app](https://railway.app)
+
+2. **Create 3 services** from the same GitHub repo, each with a different root directory:
+
+   | Service | Root Directory | Dockerfile Path |
+   |---------|---------------|-----------------|
+   | `condenser-agent` | `/poa_agents` | `condenser_agent/Dockerfile` |
+   | `legal-search-agent` | `/poa_agents` | `legal_search_agent/Dockerfile` |
+   | `frontend` | `/poa_agents/frontend` | `Dockerfile` |
+
+3. **Set environment variables** for each service in Railway's dashboard:
+
+   **condenser-agent:**
+   ```
+   OPENAI_API_KEY=sk-...
+   LLM_MODEL=gpt-4o
+   SUPABASE_URL=https://your-project.supabase.co
+   SUPABASE_ANON_KEY=...
+   PORT=8012
+   ```
+
+   **legal-search-agent:**
+   ```
+   OPENAI_API_KEY=sk-...
+   LLM_MODEL=gpt-4o
+   EMBEDDING_MODEL=text-embedding-3-small
+   SUPABASE_URL=https://your-project.supabase.co
+   SUPABASE_ANON_KEY=...
+   SIMILARITY_THRESHOLD=0.3
+   MAX_ARTICLES_PER_ISSUE=5
+   PORT=8013
+   ```
+
+   **frontend:**
+   ```
+   NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+   CONDENSER_URL=http://condenser-agent.railway.internal:8012
+   LEGAL_SEARCH_URL=http://legal-search-agent.railway.internal:8013
+   ```
+
+   > The `CONDENSER_URL` and `LEGAL_SEARCH_URL` use Railway's private networking.
+   > Replace `condenser-agent` and `legal-search-agent` with your actual Railway service names.
+
+4. **Generate a domain** for the frontend service only (Settings > Networking > Generate Domain). The agents don't need public URLs -- they're only accessed by the frontend's server-side proxy routes.
+
+5. **Push to GitHub** -- Railway auto-deploys on every push.
+
+### What you get
+
+- Frontend at `https://your-project.up.railway.app`
+- Agents running privately (not exposed to internet)
+- Auto-deploys on `git push`
+- No VM, no SSL config, no reverse proxy
+
+---
+
+## Manual Startup (Alternative)
 
 ```bash
 # Terminal 1: Condenser agent
@@ -116,7 +175,7 @@ cd frontend && npm run dev
 
 ## Usage
 
-1. Open http://localhost:3000
+1. Open the frontend URL (locally: http://localhost:3000)
 2. Enter an Application ID and click **Load Context**
 3. Inspect structured data (left panel) and document extractions (right panel)
 4. Optionally edit any field inline (click to edit)
@@ -136,14 +195,17 @@ cd frontend && npm run dev
 ```
 poa_agents/
 ├── condenser_agent/          # Agent 1: Case data -> Legal Brief
+│   ├── Dockerfile
 │   ├── manifest.yaml
 │   ├── project/acp.py        # ACP handler (JSON-RPC 2.0)
 │   └── .env.example
 ├── legal_search_agent/       # Agent 2: Legal Brief -> Legal Opinion
+│   ├── Dockerfile
 │   ├── manifest.yaml
 │   ├── project/acp.py        # ACP handler (JSON-RPC 2.0)
 │   └── .env.example
 ├── frontend/                 # Next.js 16 web UI
+│   ├── Dockerfile
 │   ├── src/app/page.tsx      # Main page + state management
 │   ├── src/app/api/agent/    # Server-side proxies (CORS)
 │   │   ├── condenser/route.ts
@@ -151,7 +213,7 @@ poa_agents/
 │   ├── src/components/       # UI components
 │   └── src/lib/              # Supabase client, agent API, validation
 ├── shared/                   # Shared schemas
-├── dev.sh                    # Single-command startup script
+├── dev.sh                    # Single-command local startup script
 └── project_plan.md           # Detailed architecture docs
 ```
 
@@ -159,22 +221,22 @@ poa_agents/
 
 ## Agents
 
-### Condenser Agent (port 8012)
+### Condenser Agent
 
 Takes structured case data + document extractions and produces a **Legal Brief** summarizing the case for legal analysis.
 
 - **Input (Mode B):** `{ case_data, document_extractions, additional_context }`
 - **Output:** Markdown with embedded JSON containing case summary, party analysis, POA details, evidence assessment, open questions
-- **LLM:** Azure OpenAI (configurable model)
+- **LLM:** OpenAI (configurable model)
 
-### Legal Search Agent (port 8013)
+### Legal Search Agent
 
 Takes a Legal Brief and produces a **Legal Opinion** with citations to Qatari law.
 
 - **Input (Mode B):** `{ legal_brief: {...} }`
 - **Output:** Markdown with embedded JSON containing overall finding, confidence score, per-issue analysis, article citations, retrieval metrics
 - **Pipeline:** Decompose issues -> HyDE article generation -> Agentic RAG retrieval -> Coverage analysis -> Synthesis
-- **LLM:** Azure OpenAI (chat + embeddings)
+- **LLM:** OpenAI (chat + embeddings)
 
 ### ACP Protocol
 
@@ -183,26 +245,6 @@ Both agents use the AgentEx ACP protocol:
 - **Endpoint:** `POST /api`
 - **Protocol:** JSON-RPC 2.0, `method: "message/send"`
 - **Response nesting:** `result.content.content` (SendMessageResponse -> TextContent -> string)
-
----
-
-## Test Data
-
-The system has test POA applications in Supabase:
-
-| # | Case | Expected Outcome |
-|---|------|-----------------|
-| 1 | SAK-2024-POA-00001 | VALID |
-| 2 | SAK-2024-POA-00002 | VALID |
-| 3 | SAK-2024-POA-00003 | TIER 1 FAIL (missing QID) |
-| 4 | SAK-2024-POA-00004 | VALID |
-| 5 | SAK-2024-POA-00005 | REQUIRES_REVIEW |
-| 6 | SAK-2024-POA-00006 | REQUIRES_REVIEW |
-| 7 | SAK-2024-POA-00007 | TIER 1 FAIL (expired QID) |
-| 8 | SAK-2024-POA-00008 | VALID |
-| 9 | SAK-2024-POA-00009 | TIER 2 FAIL (sub-delegation prohibited) |
-| 10 | SAK-2024-POA-00010 | TIER 2 FAIL (unlicensed attorney) |
-| 11 | SAK-2024-POA-00011 | TIER 2 FAIL (minor grantor) |
 
 ---
 
@@ -219,11 +261,8 @@ lsof -ti TCP:8013 -sTCP:LISTEN
 lsof -ti TCP:3000 -sTCP:LISTEN
 ```
 
-### "SUPABASE_ANON_KEY is required" error
-Make sure `.env` file exists in the agent directory.
-
 ### Frontend can't reach agents
-The frontend proxies through Next.js API routes to avoid CORS. Check that agents are running on the expected ports. The proxy routes are at `frontend/src/app/api/agent/condenser/route.ts` and `frontend/src/app/api/agent/legal-search/route.ts`.
+The frontend proxies through Next.js API routes to avoid CORS. Check that agents are running on the expected ports. For Railway, verify the `CONDENSER_URL` and `LEGAL_SEARCH_URL` env vars point to the correct internal service URLs.
 
 ### Condenser returns non-JSON
 The agent returns markdown with JSON embedded in a `<details>` block. The `parseAgentContent` function in `frontend/src/lib/agentApi.ts` extracts the JSON. If extraction fails, the raw markdown is displayed.
