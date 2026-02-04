@@ -1,9 +1,20 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+let _supabase: SupabaseClient | null = null;
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+function getSupabase(): SupabaseClient {
+  if (!_supabase) {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!supabaseUrl || !supabaseKey) {
+      throw new Error(
+        "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables"
+      );
+    }
+    _supabase = createClient(supabaseUrl, supabaseKey);
+  }
+  return _supabase;
+}
 
 export interface ContextData {
   application_id: string;
@@ -25,8 +36,8 @@ export interface ContextData {
  *   condenser_agent/project/acp.py lines 215-243
  */
 export async function loadContext(applicationId: string): Promise<ContextData> {
+  const supabase = getSupabase();
   console.log("[loadContext] Starting for application:", applicationId);
-  console.log("[loadContext] Supabase URL:", supabaseUrl);
 
   // 1. Load application
   console.log("[loadContext] Querying applications table...");
