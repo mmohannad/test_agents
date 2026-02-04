@@ -11,7 +11,7 @@
 | Item | Phase | Status |
 |------|-------|--------|
 | Next.js 16 project scaffolded (App Router, React 19, Tailwind v4, TS strict) | Phase 2 | Done |
-| `ControlRow` component — app ID input, Load, Run Agents, status, timestamps, counters | Phase 2 | Done |
+| `ControlRow` component — app ID input, Load, Run Agents, agent status display, timestamps, counters | Phase 2 | Done |
 | `StructuredPanel` — renders application, parties, capacity_proofs as grouped editable cards | Phase 2+3 | Done |
 | `UnstructuredPanel` — tabbed document extractions with metadata, raw text, extracted fields | Phase 2+3 | Done |
 | `EditableField` — click-to-edit inline fields (scalar, multiline, RTL support) | Phase 3 | Done |
@@ -22,9 +22,23 @@
 | Tier 1 deterministic validation (`lib/validation.ts`) — expiry checks, cross-validation (structured↔unstructured), missing data | Phase 2 | Done |
 | `ValidationModal` — modal overlay showing errors/warnings, blocks agents on errors, allows proceeding with warnings | Phase 2 | Done |
 | Test data: 2 QID document+extraction records for app `a0000001` in Supabase | — | Done |
-| Agent API client (`lib/agentApi.ts`) — calls condenser at `/acp/send` with Mode B payload | Phase 2 | Done |
+| Agent API client (`lib/agentApi.ts`) — JSON-RPC 2.0 over `POST /api` via server-side proxy | Phase 2 | Done |
+| Next.js API route proxy (`app/api/agent/condenser/route.ts`) — avoids CORS, proxies to `localhost:8012/api` | Phase 2 | Done |
 | Wired Run Agents → Tier 1 validation → condenser agent call → results display | Phase 2 | Done |
-| `ResultsDrawer` — bottom panel with Legal Brief tab + raw JSON toggle | Phase 2 | Done |
+| `ResultsDrawer` — structured report with dedicated section components + raw JSON tab | Phase 2 | Done |
+| JSON extraction from markdown — `parseCondenserContent` extracts embedded JSON from agent's `<details>` block | Phase 2 | Done |
+
+### Discovered: ACP Protocol Details
+
+During implementation, the following was discovered about the AgentEx ACP protocol:
+
+| Detail | Value |
+|--------|-------|
+| **HTTP endpoint** | `POST /api` (NOT `/acp/send` as initially assumed) |
+| **Protocol** | JSON-RPC 2.0 with `method: "message/send"` |
+| **Required params** | `agent` (id, name, acp_type, description, created_at, updated_at), `task` (id), `content` (type, author, content) |
+| **Response nesting** | `result.content.content` — `result` is a `SendMessageResponse`, `result.content` is a `TextContent` object, `result.content.content` is the actual string |
+| **Agent output format** | Markdown string with embedded JSON in `<details><summary>...</summary>\n```json\n{...}\n```\n</details>` |
 
 ### In Progress
 
@@ -37,7 +51,7 @@
 | Item | Phase | Notes |
 |------|-------|-------|
 | Context API (`shared/context_api.py`) | Phase 1 | Frontend uses direct Supabase for now |
-| `return_format` branch in `condenser_agent/project/acp.py` | Phase 1 | Agent currently returns markdown; frontend parses `content` field |
+| `return_format` branch in `condenser_agent/project/acp.py` | Phase 1 | Agent currently returns markdown; frontend parses embedded JSON from markdown |
 | `return_format` + `include_artifacts` branch in `legal_search_agent/project/acp.py` | Phase 1 | Not yet needed |
 | Dockerfiles for condenser + legal search + context API | Phase 1 | |
 | `docker-compose.yml` | Phase 1 | |
@@ -539,10 +553,12 @@ Since both the condenser and legal search agents are `acp_type: sync`, you have 
 
 | Approach | How frontend calls agents | Needs AgentEx backend? |
 |----------|--------------------------|----------------------|
-| **Direct** | Frontend → Agent ACP endpoint directly (HTTP POST to `:8012/acp/send`) | No |
+| **Direct** | Frontend → Next.js proxy → Agent ACP endpoint (JSON-RPC 2.0 POST to `:8012/api`) | No |
 | **AgentEx-mediated** | Frontend → AgentEx Gateway `:5003` → routes to agent | Yes |
 
-**Recommendation for MVP:** Go **direct**. Both agents are stateless sync handlers. The frontend can POST directly to each agent's ACP endpoint. This avoids needing to deploy the full AgentEx stack (PostgreSQL, Redis, MongoDB, Temporal).
+**Recommendation for MVP:** Go **direct** (currently implemented). Both agents are stateless sync handlers. The frontend proxies through a Next.js API route to avoid CORS, then hits each agent's ACP endpoint directly. This avoids needing to deploy the full AgentEx stack (PostgreSQL, Redis, MongoDB, Temporal).
+
+**Note:** The ACP endpoint is `POST /api` using JSON-RPC 2.0 with `method: "message/send"`, NOT REST at `/acp/send`.
 
 If you later need task history, streaming, or the Agentex UI alongside your custom frontend, add the AgentEx backend then.
 
@@ -552,11 +568,11 @@ If you later need task history, streaming, or the Agentex UI alongside your cust
 
 ### Technology
 
-- **Next.js 15** (App Router) — matches AgentEx UI's stack
+- **Next.js 16** (App Router, Turbopack) — latest stable
 - **React 19** with Server Components where appropriate
-- **Tailwind CSS** for styling
-- **shadcn/ui** for UI components (tables, tabs, collapsible, JSON viewer)
-- **TypeScript**
+- **Tailwind CSS v4** for styling (CSS-based config, no `tailwind.config.ts`)
+- **TypeScript** (strict mode)
+- No UI library — custom components with Tailwind utilities
 
 ### Page Layout
 
@@ -615,92 +631,105 @@ If you later need task history, streaming, or the Agentex UI alongside your cust
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-### Frontend API Calls (Mode B sequence)
+### Frontend API Calls (Mode B sequence — Implemented)
 
-The frontend always uses **Mode B** (direct-input + JSON response). CLI/Agentex UI continues to use **Mode A** unchanged.
+The frontend always uses **Mode B** (direct-input). CLI/Agentex UI continues to use **Mode A** unchanged.
 
 ```
 1. User enters application_id, clicks "Load"
-   └─► GET /api/context/{application_id}
-       └─► Context API queries Supabase (same queries condenser uses internally)
-       └─► Frontend receives { structured, unstructured }
-       └─► Renders split view
+   └─► Frontend queries Supabase directly via @supabase/supabase-js
+       └─► Same tables: applications, parties, capacity_proofs, documents, document_extractions
+       └─► Returns { structured, unstructured }
+       └─► Renders split view (StructuredPanel + UnstructuredPanel)
        └─► Enables "Run Agents" button
 
 2. User (optionally edits context), clicks "Run Agents"
 
-   Step 2a — Condenser:
-   └─► POST condenser-agent /acp/send
-       Body: {
-         "content": {
-           "content": JSON.stringify({
-             "case_data": <structured from UI state (possibly edited)>,
-             "document_extractions": <unstructured from UI state (possibly edited)>,
-             "application_id": "...",      // for tracking/saving, but agent won't re-fetch
-             "return_format": "json"       // ← this is what triggers JSON response
-           })
-         }
+   Step 2a — Tier 1 Validation:
+   └─► Runs deterministic checks (lib/validation.ts)
+       └─► Expiry checks, cross-field validation, missing data
+       └─► If errors: ValidationModal blocks; if warnings: user can proceed
+
+   Step 2b — Condenser Agent (JSON-RPC 2.0):
+   └─► POST /api/agent/condenser (Next.js proxy route)
+       └─► Proxied to http://localhost:8012/api
+       Body (JSON-RPC 2.0): {
+         "jsonrpc": "2.0",
+         "method": "message/send",
+         "params": {
+           "agent": { id, name, acp_type: "sync", description, created_at, updated_at },
+           "task": { id: "frontend-{timestamp}" },
+           "content": {
+             "type": "text",
+             "author": "user",
+             "content": JSON.stringify({
+               "case_data": <structured from UI state (possibly edited)>,
+               "document_extractions": <unstructured from UI state>
+             })
+           }
+         },
+         "id": "req-{timestamp}"
        }
        Agent behavior:
-         - Sees case_data in payload → skips Supabase fetch (existing code path)
+         - Sees case_data in payload → skips Supabase fetch (existing Mode B path)
          - Runs same LLM prompt as CLI mode
          - Saves Legal Brief to DB (same as CLI mode)
-         - Sees return_format=json → returns JSON instead of markdown (new branch)
-       └─► Returns: { type: "legal_brief_result", legal_brief: {...} }
-       └─► Frontend renders Legal Brief tab
+         - Returns markdown with embedded JSON in <details> block
+       Response nesting: result.content.content → markdown string
+       └─► parseCondenserContent extracts JSON from ```json fence
+       └─► ResultsDrawer renders structured report sections
 
-   Step 2b — Legal Search:
-   └─► POST legal-search-agent /acp/send
-       Body: {
-         "content": {
-           "content": JSON.stringify({
-             "legal_brief": <legal_brief from step 2a>,
-             "application_id": "...",
-             "return_format": "json",
-             "include_artifacts": true
-           })
-         }
-       }
-       Agent behavior:
-         - Sees legal_brief in payload → skips DB fetch (existing code path)
-         - Runs same decompose → retrieve → synthesize pipeline as CLI mode
-         - Saves opinion + artifact to DB (same as CLI mode)
-         - Sees return_format=json → returns JSON instead of markdown (new branch)
-       └─► Returns: { type: "legal_opinion_result", opinion: {...}, retrieval_artifact: {...} }
-       └─► Frontend renders Legal Opinion + Retrieval Trace tabs
+   Step 2c — Legal Search (NOT YET IMPLEMENTED):
+   └─► Will chain from condenser output
+       └─► Send legal_brief to legal search agent on port 8013
 ```
 
-**Parity note:** If a user runs the same application through CLI (Mode A) and then through the frontend (Mode B) without editing any fields, the LLM receives the **exact same prompt** with the **exact same data**. The only difference is how the result is returned (markdown vs JSON wrapper).
+**Parity note:** If a user runs the same application through CLI (Mode A) and then through the frontend (Mode B) without editing any fields, the LLM receives the **exact same prompt** with the **exact same data**. The only difference is how the result enters (DB fetch vs direct payload) and is consumed (markdown display vs parsed JSON).
 
-### Key Frontend Components
+### Key Frontend Components (Implemented)
 
 ```
 frontend/
-├── app/
-│   ├── layout.tsx                   # Root layout
-│   ├── page.tsx                     # Main page (single screen)
-│   └── api/
-│       └── context/[id]/route.ts    # Proxy to Context API (avoids CORS)
-├── components/
-│   ├── ControlRow.tsx               # App number input, Load, Run buttons, status
-│   ├── SplitView.tsx                # Left/right container
-│   ├── StructuredPanel.tsx          # Left panel: renders structured data
-│   ├── UnstructuredPanel.tsx        # Right panel: renders doc extractions
-│   ├── RawJsonViewer.tsx            # Collapsible JSON viewer (for parity check)
-│   ├── ResultsDrawer.tsx            # Bottom drawer for results
-│   ├── LegalBriefView.tsx           # Rendered legal brief
-│   ├── LegalOpinionView.tsx         # Rendered legal opinion with verdict
-│   ├── RetrievalTraceView.tsx       # Iteration details, queries, coverage
-│   └── LogsView.tsx                 # Agent logs
-├── lib/
-│   ├── api.ts                       # API client functions
-│   ├── types.ts                     # TypeScript types matching shared/schema.py
-│   └── utils.ts                     # Formatters, helpers
-├── Dockerfile
+├── src/
+│   ├── app/
+│   │   ├── layout.tsx                          # Root layout (dark theme, Inter font)
+│   │   ├── page.tsx                            # Main page — state, handlers, layout
+│   │   ├── globals.css                         # Tailwind v4 imports
+│   │   └── api/
+│   │       └── agent/
+│   │           └── condenser/
+│   │               └── route.ts                # Server-side proxy → localhost:8012/api (CORS)
+│   ├── components/
+│   │   ├── ControlRow.tsx                      # App ID input, Load, Run Agents, status badges
+│   │   ├── StructuredPanel.tsx                 # Left panel: application, parties, capacity_proofs cards
+│   │   ├── UnstructuredPanel.tsx               # Right panel: tabbed document extractions
+│   │   ├── EditableField.tsx                   # Click-to-edit inline fields (scalar, multiline, RTL)
+│   │   ├── JsonViewer.tsx                      # Collapsible raw JSON viewer
+│   │   ├── ValidationModal.tsx                 # Error/warning modal before agent run
+│   │   └── ResultsDrawer.tsx                   # Structured report: header, case summary, parties,
+│   │                                           #   entity info, POA details, evidence, fact comparisons,
+│   │                                           #   open questions, missing info + raw JSON tab
+│   └── lib/
+│       ├── agentApi.ts                         # JSON-RPC 2.0 client, payload builder, JSON extractor
+│       ├── supabase.ts                         # Direct Supabase context loading (loadContext)
+│       └── validation.ts                       # Tier 1 deterministic checks
 ├── package.json
-├── tailwind.config.ts
+├── postcss.config.mjs
+├── next.config.ts
 └── tsconfig.json
 ```
+
+### Key Architecture Decisions
+
+1. **Server-side proxy for CORS**: Browser cannot call `localhost:8012` directly. The Next.js API route at `/api/agent/condenser` proxies requests server-side.
+
+2. **JSON-RPC 2.0 protocol**: The ACP endpoint is `POST /api` with `method: "message/send"`. The `agent` param requires all fields (id, name, acp_type, description, created_at, updated_at).
+
+3. **Response nesting**: The JSON-RPC result is a `SendMessageResponse` wrapping a `TextContent`. The actual content string is at `result.content.content`.
+
+4. **JSON extraction from markdown**: The agent returns markdown with embedded JSON in a fenced code block inside `<details>`. `parseCondenserContent` extracts and parses this JSON for structured rendering.
+
+5. **Direct Supabase loading**: Frontend queries Supabase directly (same tables as condenser agent) rather than requiring a separate Context API service. This simplifies the MVP.
 
 ### Parity Guarantee (Frontend Mode B vs CLI Mode A)
 
