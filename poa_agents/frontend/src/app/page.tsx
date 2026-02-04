@@ -5,7 +5,8 @@ import { loadContext, type ContextData } from "@/lib/supabase";
 import { runTier1Checks, type ValidationFinding } from "@/lib/validation";
 import {
   runCondenserAgent,
-  parseCondenserContent,
+  runLegalSearchAgent,
+  parseAgentContent,
   type AgentPayload,
 } from "@/lib/agentApi";
 import { ControlRow } from "@/components/ControlRow";
@@ -13,6 +14,8 @@ import { StructuredPanel } from "@/components/StructuredPanel";
 import { UnstructuredPanel } from "@/components/UnstructuredPanel";
 import { ValidationModal } from "@/components/ValidationModal";
 import { ResultsDrawer } from "@/components/ResultsDrawer";
+
+type AgentStepStatus = "idle" | "running" | "completed" | "error";
 
 export default function Home() {
   const [context, setContext] = useState<ContextData | null>(null);
@@ -22,13 +25,19 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [loadedAt, setLoadedAt] = useState<string | null>(null);
   const [validationFindings, setValidationFindings] = useState<ValidationFinding[] | null>(null);
-  const [agentStatus, setAgentStatus] = useState<
-    "idle" | "running" | "completed" | "error"
-  >("idle");
-  const [agentResult, setAgentResult] = useState<
+
+  // Per-agent state
+  const [condenserStatus, setCondenserStatus] = useState<AgentStepStatus>("idle");
+  const [condenserResult, setCondenserResult] = useState<
     Record<string, unknown> | string | null
   >(null);
-  const [agentError, setAgentError] = useState<string | null>(null);
+  const [condenserError, setCondenserError] = useState<string | null>(null);
+
+  const [legalSearchStatus, setLegalSearchStatus] = useState<AgentStepStatus>("idle");
+  const [legalSearchResult, setLegalSearchResult] = useState<
+    Record<string, unknown> | string | null
+  >(null);
+  const [legalSearchError, setLegalSearchError] = useState<string | null>(null);
 
   const handleLoad = useCallback(async (applicationId: string) => {
     setStatus("loading");
@@ -155,22 +164,52 @@ export default function Home() {
     if (!payload) return;
 
     setValidationFindings(null);
-    setAgentStatus("running");
-    setAgentError(null);
-    setAgentResult(null);
 
+    // Reset all agent state
+    setCondenserStatus("running");
+    setCondenserResult(null);
+    setCondenserError(null);
+    setLegalSearchStatus("idle");
+    setLegalSearchResult(null);
+    setLegalSearchError(null);
+
+    // Step 1: Condenser agent
+    let condenserParsed: Record<string, unknown> | string;
     try {
-      console.log("[RunAgents] Sending payload to condenser agent...");
-      const content = await runCondenserAgent(payload as AgentPayload);
-      const parsed = parseCondenserContent(content);
-      console.log("[RunAgents] Condenser result:", parsed);
-      setAgentResult(parsed);
-      setAgentStatus("completed");
+      console.log("[RunAgents] Step 1/2: Sending payload to condenser agent...");
+      const condenserRaw = await runCondenserAgent(payload as AgentPayload);
+      condenserParsed = parseAgentContent(condenserRaw);
+      console.log("[RunAgents] Condenser result:", condenserParsed);
+      setCondenserResult(condenserParsed);
+      setCondenserStatus("completed");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error("[RunAgents] Agent call failed:", msg);
-      setAgentError(msg);
-      setAgentStatus("error");
+      console.error("[RunAgents] Condenser failed:", msg);
+      setCondenserError(msg);
+      setCondenserStatus("error");
+      return; // Don't chain to legal search if condenser failed
+    }
+
+    // Step 2: Legal search agent (auto-chain)
+    if (typeof condenserParsed !== "object") {
+      // Condenser returned raw text, can't chain — show what we have
+      console.warn("[RunAgents] Condenser returned non-JSON, skipping legal search");
+      return;
+    }
+
+    setLegalSearchStatus("running");
+    try {
+      console.log("[RunAgents] Step 2/2: Sending legal brief to legal search agent...");
+      const legalRaw = await runLegalSearchAgent(condenserParsed);
+      const legalParsed = parseAgentContent(legalRaw);
+      console.log("[RunAgents] Legal search result:", legalParsed);
+      setLegalSearchResult(legalParsed);
+      setLegalSearchStatus("completed");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[RunAgents] Legal search failed:", msg);
+      setLegalSearchError(msg);
+      setLegalSearchStatus("error");
     }
   }, [getAgentPayload]);
 
@@ -184,14 +223,35 @@ export default function Home() {
     }
   }, [context, proceedWithAgents]);
 
+  // Compute overall agent status for ControlRow
+  const overallAgentStatus: AgentStepStatus =
+    condenserStatus === "idle" && legalSearchStatus === "idle"
+      ? "idle"
+      : condenserStatus === "running" || legalSearchStatus === "running"
+        ? "running"
+        : condenserStatus === "error"
+          ? "error"
+          : legalSearchStatus === "error"
+            ? "error"
+            : legalSearchStatus === "completed"
+              ? "completed"
+              : condenserStatus === "completed"
+                ? "running" // condenser done, legal search pending
+                : "idle";
+
+  const showResults =
+    condenserResult !== null || legalSearchResult !== null;
+
   return (
     <div className="min-h-screen flex flex-col">
       <ControlRow
         onLoad={handleLoad}
         status={status}
-        agentStatus={agentStatus}
+        agentStatus={overallAgentStatus}
+        condenserStatus={condenserStatus}
+        legalSearchStatus={legalSearchStatus}
         error={error}
-        agentError={agentError}
+        agentError={condenserError || legalSearchError}
         loadedAt={loadedAt}
         partyCount={context?.structured.parties.length ?? 0}
         docCount={context?.unstructured.document_extractions.length ?? 0}
@@ -248,12 +308,19 @@ export default function Home() {
       )}
 
       {/* Results Drawer */}
-      {agentResult !== null && (
+      {showResults && (
         <ResultsDrawer
-          result={agentResult}
+          condenserResult={condenserResult}
+          legalSearchResult={legalSearchResult}
+          legalSearchStatus={legalSearchStatus}
+          legalSearchError={legalSearchError}
           onClose={() => {
-            setAgentResult(null);
-            setAgentStatus("idle");
+            setCondenserResult(null);
+            setCondenserStatus("idle");
+            setCondenserError(null);
+            setLegalSearchResult(null);
+            setLegalSearchStatus("idle");
+            setLegalSearchError(null);
           }}
         />
       )}

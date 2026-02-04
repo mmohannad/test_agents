@@ -2,11 +2,15 @@
 
 import { useState, type FormEvent } from "react";
 
+type AgentStepStatus = "idle" | "running" | "completed" | "error";
+
 interface ControlRowProps {
   onLoad: (applicationId: string) => void;
   onRunAgents?: () => void;
   status: "idle" | "loading" | "loaded" | "error";
-  agentStatus: "idle" | "running" | "completed" | "error";
+  agentStatus: AgentStepStatus;
+  condenserStatus: AgentStepStatus;
+  legalSearchStatus: AgentStepStatus;
   error: string | null;
   agentError: string | null;
   loadedAt: string | null;
@@ -19,6 +23,8 @@ export function ControlRow({
   onRunAgents,
   status,
   agentStatus,
+  condenserStatus,
+  legalSearchStatus,
   error,
   agentError,
   loadedAt,
@@ -39,6 +45,17 @@ export function ControlRow({
     loaded: { label: "Loaded", color: "bg-green-900 text-green-300" },
     error: { label: "Error", color: "bg-red-900 text-red-300" },
   }[status];
+
+  // Determine step label for agent progress
+  const agentProgressLabel = (() => {
+    if (condenserStatus === "running") return "Step 1/2: Running condenser...";
+    if (condenserStatus === "completed" && legalSearchStatus === "idle") return "Step 1/2 complete, starting legal search...";
+    if (legalSearchStatus === "running") return "Step 2/2: Running legal search...";
+    if (condenserStatus === "completed" && legalSearchStatus === "completed") return "Both agents complete";
+    if (condenserStatus === "error") return "Condenser failed";
+    if (legalSearchStatus === "error") return "Legal search failed";
+    return null;
+  })();
 
   return (
     <div className="border-b border-gray-800 bg-gray-900 px-6 py-4">
@@ -91,22 +108,22 @@ export function ControlRow({
           )}
         </div>
 
-        {/* Agent status */}
+        {/* Agent progress */}
         {agentStatus !== "idle" && (
           <>
             <span className="text-gray-500">|</span>
             {agentStatus === "running" && (
               <span className="flex items-center gap-2 text-xs text-blue-400">
                 <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
-                Running condenser...
+                {agentProgressLabel}
               </span>
             )}
             {agentStatus === "completed" && (
-              <span className="text-xs text-green-400">Agent complete</span>
+              <span className="text-xs text-green-400">{agentProgressLabel}</span>
             )}
             {agentStatus === "error" && (
               <span className="text-xs text-red-400 max-w-xs truncate" title={agentError ?? ""}>
-                Agent failed{agentError ? `: ${agentError}` : ""}
+                {agentProgressLabel}{agentError ? `: ${agentError}` : ""}
               </span>
             )}
           </>

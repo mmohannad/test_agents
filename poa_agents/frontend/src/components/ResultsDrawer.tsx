@@ -3,12 +3,19 @@
 import { useState } from "react";
 import { JsonViewer } from "./JsonViewer";
 
+type AgentStepStatus = "idle" | "running" | "completed" | "error";
+
 interface ResultsDrawerProps {
-  result: Record<string, unknown> | string;
+  condenserResult: Record<string, unknown> | string | null;
+  legalSearchResult: Record<string, unknown> | string | null;
+  legalSearchStatus: AgentStepStatus;
+  legalSearchError: string | null;
   onClose: () => void;
 }
 
-// --- Type helpers for the legal brief JSON ---
+// =====================================================================
+// Type helpers — Legal Brief (condenser output)
+// =====================================================================
 
 interface CaseSummary {
   application_number?: string;
@@ -87,11 +94,120 @@ interface LegalBrief {
   missing_information?: string[];
 }
 
-export function ResultsDrawer({ result, onClose }: ResultsDrawerProps) {
-  const [activeTab, setActiveTab] = useState<"report" | "raw">("report");
+// =====================================================================
+// Type helpers — Legal Opinion (legal search output)
+// =====================================================================
 
-  const isStructured = typeof result === "object";
-  const brief: LegalBrief | null = isStructured ? (result as LegalBrief) : null;
+interface IssueAnalysis {
+  issue_id?: string;
+  issue_title?: string;
+  category?: string;
+  primary_question?: string;
+  facts_considered?: string[];
+  legal_analysis?: string;
+  finding?: string;
+  finding_status?: string;
+  confidence?: number;
+  reasoning?: string;
+  reasoning_summary?: string;
+  applicable_articles?: {
+    article_number?: number;
+    article_text?: string;
+    text?: string;
+    application_to_facts?: string;
+    similarity_score?: number;
+  }[];
+  supporting_articles?: {
+    article_number?: number;
+    article_text?: string;
+    text?: string;
+    application_to_facts?: string;
+    similarity_score?: number;
+  }[];
+  concerns?: string[];
+}
+
+interface Citation {
+  citation_id?: string;
+  article_number?: number;
+  law_name?: string;
+  chapter?: string;
+  text_en?: string;
+  quoted_text?: string;
+  relevance?: string;
+  similarity_score?: number;
+}
+
+interface RetrievalMetrics {
+  total_iterations?: number;
+  total_articles?: number;
+  stop_reason?: string;
+  coverage_score?: number;
+  avg_similarity?: number;
+  top_3_similarity?: number;
+  total_llm_calls?: number;
+  total_embedding_calls?: number;
+  total_latency_ms?: number;
+  estimated_cost_usd?: number;
+}
+
+interface LegalOpinion {
+  application_id?: string;
+  generated_at?: string;
+  overall_finding?: string;
+  decision_bucket?: string;
+  confidence_score?: number;
+  confidence_level?: string;
+  opinion_summary_en?: string;
+  opinion_summary_ar?: string;
+  case_summary?: {
+    application_type?: string;
+    parties_involved?: string;
+    core_question?: string;
+    key_facts?: string[];
+  };
+  detailed_analysis?: {
+    introduction?: string;
+    issue_by_issue_analysis?: IssueAnalysis[];
+    synthesis?: string;
+    conclusion?: string;
+  };
+  findings?: IssueAnalysis[];
+  issues_analyzed?: IssueAnalysis[];
+  concerns?: string[];
+  recommendations?: string[];
+  conditions?: string[];
+  citations?: Citation[];
+  all_citations?: Citation[];
+  grounding_score?: number;
+  retrieval_coverage?: number;
+  retrieval_metrics?: RetrievalMetrics;
+}
+
+// =====================================================================
+// Main component
+// =====================================================================
+
+export function ResultsDrawer({
+  condenserResult,
+  legalSearchResult,
+  legalSearchStatus,
+  legalSearchError,
+  onClose,
+}: ResultsDrawerProps) {
+  const [activeTab, setActiveTab] = useState<"brief" | "opinion" | "raw">("brief");
+
+  const briefIsStructured = typeof condenserResult === "object" && condenserResult !== null;
+  const brief: LegalBrief | null = briefIsStructured ? (condenserResult as LegalBrief) : null;
+
+  const opinionIsStructured = typeof legalSearchResult === "object" && legalSearchResult !== null;
+  const opinion: LegalOpinion | null = opinionIsStructured ? (legalSearchResult as LegalOpinion) : null;
+
+  const tabs: { key: "brief" | "opinion" | "raw"; label: string }[] = [
+    { key: "brief", label: "Legal Brief" },
+    { key: "opinion", label: "Legal Opinion" },
+    { key: "raw", label: "Raw JSON" },
+  ];
 
   return (
     <div className="border-t border-gray-700 bg-gray-900">
@@ -100,26 +216,22 @@ export function ResultsDrawer({ result, onClose }: ResultsDrawerProps) {
         <div className="flex items-center gap-4">
           <h2 className="text-sm font-bold text-gray-100">Agent Results</h2>
           <div className="flex gap-1">
-            <button
-              onClick={() => setActiveTab("report")}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                activeTab === "report"
-                  ? "bg-gray-700 text-gray-100"
-                  : "text-gray-500 hover:text-gray-300"
-              }`}
-            >
-              Structured Report
-            </button>
-            <button
-              onClick={() => setActiveTab("raw")}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                activeTab === "raw"
-                  ? "bg-gray-700 text-gray-100"
-                  : "text-gray-500 hover:text-gray-300"
-              }`}
-            >
-              Raw JSON
-            </button>
+            {tabs.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  activeTab === tab.key
+                    ? "bg-gray-700 text-gray-100"
+                    : "text-gray-500 hover:text-gray-300"
+                }`}
+              >
+                {tab.label}
+                {tab.key === "opinion" && legalSearchStatus === "running" && (
+                  <span className="ml-1.5 inline-block h-2 w-2 animate-spin rounded-full border border-blue-400 border-t-transparent" />
+                )}
+              </button>
+            ))}
           </div>
         </div>
         <button
@@ -132,23 +244,16 @@ export function ResultsDrawer({ result, onClose }: ResultsDrawerProps) {
 
       {/* Body */}
       <div className="max-h-[50vh] overflow-y-auto px-6 py-4">
-        {activeTab === "report" && (
+        {/* Legal Brief tab */}
+        {activeTab === "brief" && (
           <div className="space-y-4">
             {brief ? (
               <>
                 <ReportHeader brief={brief} />
-                {brief.case_summary && (
-                  <CaseSummarySection data={brief.case_summary} />
-                )}
-                {brief.parties && brief.parties.length > 0 && (
-                  <PartiesSection data={brief.parties} />
-                )}
-                {brief.entity_information && (
-                  <EntitySection data={brief.entity_information} />
-                )}
-                {brief.poa_details && (
-                  <POADetailsSection data={brief.poa_details} />
-                )}
+                {brief.case_summary && <CaseSummarySection data={brief.case_summary} />}
+                {brief.parties && brief.parties.length > 0 && <PartiesSection data={brief.parties} />}
+                {brief.entity_information && <EntitySection data={brief.entity_information} />}
+                {brief.poa_details && <POADetailsSection data={brief.poa_details} />}
                 {brief.evidence_summary && brief.evidence_summary.length > 0 && (
                   <EvidenceSummarySection data={brief.evidence_summary} />
                 )}
@@ -162,25 +267,95 @@ export function ResultsDrawer({ result, onClose }: ResultsDrawerProps) {
                   <MissingInfoSection data={brief.missing_information} />
                 )}
               </>
-            ) : (
+            ) : condenserResult ? (
               <div className="bg-gray-800 rounded-lg p-4">
                 <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono">
-                  {typeof result === "string" ? result : JSON.stringify(result, null, 2)}
+                  {typeof condenserResult === "string"
+                    ? condenserResult
+                    : JSON.stringify(condenserResult, null, 2)}
                 </pre>
               </div>
+            ) : (
+              <p className="text-gray-500 text-sm">No condenser result yet.</p>
             )}
           </div>
         )}
 
+        {/* Legal Opinion tab */}
+        {activeTab === "opinion" && (
+          <div className="space-y-4">
+            {legalSearchStatus === "running" && (
+              <div className="flex items-center gap-3 bg-blue-950/30 border border-blue-900/50 rounded-lg px-4 py-3">
+                <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
+                <span className="text-sm text-blue-300">
+                  Legal search agent is running... This may take a while as it performs agentic RAG.
+                </span>
+              </div>
+            )}
+            {legalSearchStatus === "error" && (
+              <div className="bg-red-950/30 border border-red-800/50 rounded-lg px-4 py-3">
+                <p className="text-sm text-red-400">Legal search agent failed</p>
+                {legalSearchError && (
+                  <p className="text-xs text-red-300 mt-1">{legalSearchError}</p>
+                )}
+              </div>
+            )}
+            {legalSearchStatus === "idle" && !legalSearchResult && (
+              <p className="text-gray-500 text-sm">
+                Legal search has not run yet. It will auto-start after condenser completes.
+              </p>
+            )}
+            {opinion ? (
+              <>
+                <DecisionBanner opinion={opinion} />
+                <OpinionSummarySection opinion={opinion} />
+                <IssuesAnalyzedSection opinion={opinion} />
+                {opinion.concerns && opinion.concerns.length > 0 && (
+                  <StringListSection title="Concerns" items={opinion.concerns} color="yellow" />
+                )}
+                {opinion.recommendations && opinion.recommendations.length > 0 && (
+                  <StringListSection title="Recommendations" items={opinion.recommendations} color="blue" />
+                )}
+                {opinion.conditions && opinion.conditions.length > 0 && (
+                  <StringListSection title="Conditions" items={opinion.conditions} color="orange" />
+                )}
+                <CitationsSection opinion={opinion} />
+                {opinion.retrieval_metrics && (
+                  <RetrievalMetricsSection metrics={opinion.retrieval_metrics} grounding={opinion.grounding_score} coverage={opinion.retrieval_coverage} />
+                )}
+              </>
+            ) : legalSearchResult && typeof legalSearchResult === "string" ? (
+              <div className="bg-gray-800 rounded-lg p-4">
+                <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono">
+                  {legalSearchResult}
+                </pre>
+              </div>
+            ) : null}
+          </div>
+        )}
+
+        {/* Raw JSON tab */}
         {activeTab === "raw" && (
-          <JsonViewer data={result} label="Full Agent Response" defaultOpen />
+          <div className="space-y-4">
+            {condenserResult && (
+              <JsonViewer data={condenserResult} label="Condenser Agent (Legal Brief)" defaultOpen />
+            )}
+            {legalSearchResult && (
+              <JsonViewer data={legalSearchResult} label="Legal Search Agent (Opinion)" defaultOpen />
+            )}
+            {!condenserResult && !legalSearchResult && (
+              <p className="text-gray-500 text-sm">No results yet.</p>
+            )}
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-// --- Section wrapper ---
+// =====================================================================
+// Shared UI primitives
+// =====================================================================
 
 function Section({
   title,
@@ -204,7 +379,86 @@ function Section({
   );
 }
 
-// --- Header ---
+function KV({
+  label,
+  value,
+  mono,
+  span,
+}: {
+  label: string;
+  value?: string | null;
+  mono?: boolean;
+  span?: number;
+}) {
+  return (
+    <div style={span ? { gridColumn: `span ${span}` } : undefined}>
+      <span className="text-[10px] text-gray-500">{label}</span>
+      <p
+        className={`text-xs text-gray-200 ${mono ? "font-mono" : ""} ${
+          !value ? "text-gray-600 italic" : ""
+        }`}
+      >
+        {value || "\u2014"}
+      </p>
+    </div>
+  );
+}
+
+function ConfidenceBadge({ value }: { value: number }) {
+  const pct = (value * 100).toFixed(0);
+  const color =
+    value >= 0.8
+      ? "bg-green-900/50 text-green-400"
+      : value >= 0.5
+        ? "bg-yellow-900/50 text-yellow-400"
+        : "bg-red-900/50 text-red-400";
+
+  return (
+    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${color}`}>
+      {pct}%
+    </span>
+  );
+}
+
+function CollapsibleText({
+  label,
+  text,
+  dir,
+}: {
+  label: string;
+  text: string;
+  dir?: "rtl" | "ltr";
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-3">
+      <button
+        onClick={() => setOpen(!open)}
+        className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider hover:text-gray-400 transition-colors"
+      >
+        {open ? "\u25BE" : "\u25B8"} {label}
+      </button>
+      {open && (
+        <pre
+          dir={dir}
+          className="mt-1 text-xs text-gray-400 whitespace-pre-wrap bg-gray-900/50 rounded p-3 max-h-48 overflow-y-auto"
+        >
+          {text}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+function formatLabel(key: string): string {
+  return key
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// =====================================================================
+// Legal Brief sections (condenser output)
+// =====================================================================
 
 function ReportHeader({ brief }: { brief: LegalBrief }) {
   const confidence = brief.extraction_confidence;
@@ -247,8 +501,6 @@ function ReportHeader({ brief }: { brief: LegalBrief }) {
   );
 }
 
-// --- Case Summary ---
-
 function CaseSummarySection({ data }: { data: CaseSummary }) {
   return (
     <Section title="Case Summary">
@@ -261,10 +513,7 @@ function CaseSummarySection({ data }: { data: CaseSummary }) {
   );
 }
 
-// --- Parties ---
-
 function PartiesSection({ data }: { data: Party[] }) {
-  // Group by role
   const grouped = new Map<string, Party[]>();
   for (const p of data) {
     const role = p.role ?? "unknown";
@@ -309,8 +558,6 @@ function PartiesSection({ data }: { data: Party[] }) {
   );
 }
 
-// --- Entity Information ---
-
 function EntitySection({ data }: { data: EntityInformation }) {
   const authorities = data.registered_authorities ?? [];
 
@@ -339,12 +586,12 @@ function EntitySection({ data }: { data: EntityInformation }) {
             <tbody>
               {authorities.map((a, i) => (
                 <tr key={i} className="border-b border-gray-800/30 text-gray-300">
-                  <td className="py-1.5 pr-3">{a.person_name ?? "—"}</td>
-                  <td className="py-1.5 pr-3">{a.position ?? "—"}</td>
+                  <td className="py-1.5 pr-3">{a.person_name ?? "\u2014"}</td>
+                  <td className="py-1.5 pr-3">{a.position ?? "\u2014"}</td>
                   <td className="py-1.5 pr-3 max-w-xs truncate" title={a.authority_scope}>
-                    {a.authority_scope ?? "—"}
+                    {a.authority_scope ?? "\u2014"}
                   </td>
-                  <td className="py-1.5 font-mono">{a.id_number ?? "—"}</td>
+                  <td className="py-1.5 font-mono">{a.id_number ?? "\u2014"}</td>
                 </tr>
               ))}
             </tbody>
@@ -355,8 +602,6 @@ function EntitySection({ data }: { data: EntityInformation }) {
   );
 }
 
-// --- POA Details ---
-
 function POADetailsSection({ data }: { data: POADetails }) {
   const powers = data.powers_granted ?? [];
   const subst =
@@ -366,7 +611,7 @@ function POADetailsSection({ data }: { data: POADetails }) {
         ? "No"
         : typeof data.substitution_allowed === "string"
           ? data.substitution_allowed
-          : "—";
+          : "\u2014";
 
   return (
     <Section title="POA Details">
@@ -402,8 +647,6 @@ function POADetailsSection({ data }: { data: POADetails }) {
   );
 }
 
-// --- Evidence Summary ---
-
 function EvidenceSummarySection({ data }: { data: EvidenceItem[] }) {
   return (
     <Section
@@ -429,7 +672,7 @@ function EvidenceSummarySection({ data }: { data: EvidenceItem[] }) {
               <ul className="space-y-1">
                 {item.key_facts_extracted.map((fact, j) => (
                   <li key={j} className="text-[11px] text-gray-400 flex gap-1.5">
-                    <span className="text-gray-600 shrink-0">•</span>
+                    <span className="text-gray-600 shrink-0">&bull;</span>
                     {fact}
                   </li>
                 ))}
@@ -441,8 +684,6 @@ function EvidenceSummarySection({ data }: { data: EvidenceItem[] }) {
     </Section>
   );
 }
-
-// --- Fact Comparisons ---
 
 function FactComparisonsSection({ data }: { data: FactComparison[] }) {
   return (
@@ -492,10 +733,10 @@ function FactComparisonsSection({ data }: { data: FactComparison[] }) {
                 ) : fc.match === false ? (
                   <span className="text-red-400 font-semibold">No</span>
                 ) : (
-                  <span className="text-gray-600">—</span>
+                  <span className="text-gray-600">\u2014</span>
                 )}
               </td>
-              <td className="py-2 text-gray-400">{fc.notes ?? "—"}</td>
+              <td className="py-2 text-gray-400">{fc.notes ?? "\u2014"}</td>
             </tr>
           ))}
         </tbody>
@@ -504,10 +745,7 @@ function FactComparisonsSection({ data }: { data: FactComparison[] }) {
   );
 }
 
-// --- Open Questions ---
-
 function OpenQuestionsSection({ data }: { data: OpenQuestion[] }) {
-  // Group by priority
   const priorities = ["critical", "important", "supplementary"];
   const grouped = new Map<string, OpenQuestion[]>();
   for (const q of data) {
@@ -589,8 +827,6 @@ function OpenQuestionsSection({ data }: { data: OpenQuestion[] }) {
   );
 }
 
-// --- Missing Information ---
-
 function MissingInfoSection({ data }: { data: string[] }) {
   return (
     <Section
@@ -613,81 +849,352 @@ function MissingInfoSection({ data }: { data: string[] }) {
   );
 }
 
-// --- Shared UI primitives ---
+// =====================================================================
+// Legal Opinion sections (legal search output)
+// =====================================================================
 
-function KV({
-  label,
-  value,
-  mono,
-  span,
-}: {
-  label: string;
-  value?: string | null;
-  mono?: boolean;
-  span?: number;
-}) {
+function DecisionBanner({ opinion }: { opinion: LegalOpinion }) {
+  const finding = opinion.overall_finding ?? "UNKNOWN";
+  const bucket = opinion.decision_bucket ?? "unknown";
+  const confidence = opinion.confidence_score;
+  const level = opinion.confidence_level;
+
+  const findingColors: Record<string, string> = {
+    VALID: "bg-green-900/40 border-green-700 text-green-300",
+    VALID_WITH_CONDITIONS: "bg-yellow-900/40 border-yellow-700 text-yellow-300",
+    INVALID: "bg-red-900/40 border-red-700 text-red-300",
+    REQUIRES_REVIEW: "bg-orange-900/40 border-orange-700 text-orange-300",
+    INCONCLUSIVE: "bg-gray-800 border-gray-600 text-gray-300",
+  };
+
+  const bucketLabels: Record<string, string> = {
+    valid: "Valid",
+    valid_with_remediations: "Valid with Remediations",
+    invalid: "Invalid",
+    needs_review: "Needs Review",
+  };
+
+  const bannerClass = findingColors[finding] ?? findingColors.INCONCLUSIVE;
+
   return (
-    <div style={span ? { gridColumn: `span ${span}` } : undefined}>
-      <span className="text-[10px] text-gray-500">{label}</span>
-      <p
-        className={`text-xs text-gray-200 ${mono ? "font-mono" : ""} ${
-          !value ? "text-gray-600 italic" : ""
-        }`}
-      >
-        {value || "—"}
-      </p>
+    <div className={`border rounded-lg px-5 py-4 ${bannerClass}`}>
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="flex items-center gap-3">
+            <span className="text-lg font-bold">{finding.replace(/_/g, " ")}</span>
+            <span className="text-xs px-2 py-0.5 rounded bg-black/20">
+              {bucketLabels[bucket] ?? bucket}
+            </span>
+          </div>
+          {opinion.generated_at && (
+            <p className="text-[10px] mt-1 opacity-70">
+              Generated {new Date(opinion.generated_at).toLocaleString()}
+            </p>
+          )}
+        </div>
+        {confidence != null && (
+          <div className="text-right">
+            <p className="text-2xl font-bold">{(confidence * 100).toFixed(0)}%</p>
+            {level && <p className="text-[10px] uppercase tracking-wider opacity-70">{level} confidence</p>}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-function ConfidenceBadge({ value }: { value: number }) {
-  const pct = (value * 100).toFixed(0);
-  const color =
-    value >= 0.8
-      ? "bg-green-900/50 text-green-400"
-      : value >= 0.5
-        ? "bg-yellow-900/50 text-yellow-400"
-        : "bg-red-900/50 text-red-400";
+function OpinionSummarySection({ opinion }: { opinion: LegalOpinion }) {
+  const en = opinion.opinion_summary_en;
+  const ar = opinion.opinion_summary_ar;
+  if (!en && !ar) return null;
 
   return (
-    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${color}`}>
-      {pct}%
-    </span>
-  );
-}
-
-function CollapsibleText({
-  label,
-  text,
-  dir,
-}: {
-  label: string;
-  text: string;
-  dir?: "rtl" | "ltr";
-}) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="mt-3">
-      <button
-        onClick={() => setOpen(!open)}
-        className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider hover:text-gray-400 transition-colors"
-      >
-        {open ? "▾" : "▸"} {label}
-      </button>
-      {open && (
-        <pre
-          dir={dir}
-          className="mt-1 text-xs text-gray-400 whitespace-pre-wrap bg-gray-900/50 rounded p-3 max-h-48 overflow-y-auto"
-        >
-          {text}
-        </pre>
+    <Section title="Opinion Summary">
+      {en && <p className="text-sm text-gray-300 leading-relaxed">{en}</p>}
+      {ar && (
+        <div className="mt-3">
+          <span className="text-[10px] text-gray-500 uppercase tracking-wider">Arabic Summary</span>
+          <p dir="rtl" className="text-sm text-gray-300 leading-relaxed mt-1">
+            {ar}
+          </p>
+        </div>
       )}
-    </div>
+    </Section>
   );
 }
 
-function formatLabel(key: string): string {
-  return key
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+function IssuesAnalyzedSection({ opinion }: { opinion: LegalOpinion }) {
+  // Issues can be in different places depending on the output structure
+  const issues =
+    opinion.detailed_analysis?.issue_by_issue_analysis ??
+    opinion.issues_analyzed ??
+    opinion.findings ??
+    [];
+
+  if (issues.length === 0) return null;
+
+  const findingColor: Record<string, string> = {
+    SUPPORTED: "text-green-400",
+    NOT_SUPPORTED: "text-red-400",
+    PARTIALLY_SUPPORTED: "text-yellow-400",
+    UNCLEAR: "text-orange-400",
+  };
+
+  return (
+    <Section
+      title="Issues Analyzed"
+      badge={
+        <span className="text-[10px] text-gray-600 font-normal">
+          {issues.length} {issues.length === 1 ? "issue" : "issues"}
+        </span>
+      }
+    >
+      <div className="space-y-3">
+        {issues.map((issue, i) => {
+          const finding = issue.finding ?? issue.finding_status ?? "UNKNOWN";
+          const conf = issue.confidence;
+          const articles = issue.applicable_articles ?? issue.supporting_articles ?? [];
+
+          return (
+            <div key={i} className="bg-gray-900/50 rounded-lg p-4 space-y-2">
+              {/* Header row */}
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    {issue.issue_id && (
+                      <span className="text-[10px] font-mono text-gray-600">
+                        {issue.issue_id}
+                      </span>
+                    )}
+                    <span className="text-xs font-medium text-gray-200">
+                      {issue.issue_title ?? issue.category ?? `Issue ${i + 1}`}
+                    </span>
+                  </div>
+                  {issue.category && issue.issue_title && (
+                    <span className="inline-block mt-0.5 text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-500">
+                      {issue.category}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className={`text-xs font-semibold ${findingColor[finding] ?? "text-gray-400"}`}>
+                    {finding.replace(/_/g, " ")}
+                  </span>
+                  {conf != null && <ConfidenceBadge value={conf} />}
+                </div>
+              </div>
+
+              {/* Question */}
+              {issue.primary_question && (
+                <p className="text-[11px] text-gray-400 italic">{issue.primary_question}</p>
+              )}
+
+              {/* Analysis/Reasoning */}
+              {(issue.legal_analysis || issue.reasoning || issue.reasoning_summary) && (
+                <p className="text-xs text-gray-300">
+                  {issue.legal_analysis || issue.reasoning || issue.reasoning_summary}
+                </p>
+              )}
+
+              {/* Supporting articles */}
+              {articles.length > 0 && (
+                <div className="mt-1">
+                  <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">
+                    Supporting Articles ({articles.length})
+                  </span>
+                  <div className="mt-1 space-y-1">
+                    {articles.map((art, j) => (
+                      <div key={j} className="text-[11px] text-gray-400 pl-2 border-l border-gray-700">
+                        <span className="font-medium text-gray-300">
+                          Art. {art.article_number}
+                        </span>
+                        {" \u2014 "}
+                        {(art.article_text || art.application_to_facts || art.text || "").slice(0, 200)}
+                        {((art.article_text || art.application_to_facts || art.text || "").length > 200 ? "..." : "")}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Per-issue concerns */}
+              {issue.concerns && issue.concerns.length > 0 && (
+                <div className="mt-1">
+                  <span className="text-[10px] text-yellow-500 font-semibold uppercase tracking-wider">
+                    Concerns
+                  </span>
+                  <ul className="mt-0.5 space-y-0.5">
+                    {issue.concerns.map((c, j) => (
+                      <li key={j} className="text-[11px] text-yellow-400/70 pl-2 border-l border-yellow-800/50">
+                        {c}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Section>
+  );
+}
+
+function StringListSection({
+  title,
+  items,
+  color,
+}: {
+  title: string;
+  items: string[];
+  color: "yellow" | "blue" | "orange";
+}) {
+  const colors = {
+    yellow: { border: "border-yellow-700/50", text: "text-yellow-400/80", icon: "text-yellow-600" },
+    blue: { border: "border-blue-700/50", text: "text-blue-400/80", icon: "text-blue-600" },
+    orange: { border: "border-orange-700/50", text: "text-orange-400/80", icon: "text-orange-600" },
+  }[color];
+
+  return (
+    <Section title={title} badge={<span className="text-[10px] text-gray-600 font-normal">{items.length}</span>}>
+      <ul className="space-y-1.5">
+        {items.map((item, i) => (
+          <li key={i} className={`text-xs ${colors.text} flex gap-2 pl-2 border-l ${colors.border}`}>
+            {item}
+          </li>
+        ))}
+      </ul>
+    </Section>
+  );
+}
+
+function CitationsSection({ opinion }: { opinion: LegalOpinion }) {
+  const citations = opinion.all_citations ?? opinion.citations ?? [];
+  if (citations.length === 0) return null;
+
+  return (
+    <Section
+      title="Legal Citations"
+      badge={
+        <span className="text-[10px] text-gray-600 font-normal">
+          {citations.length} {citations.length === 1 ? "article" : "articles"}
+        </span>
+      }
+    >
+      <div className="space-y-2">
+        {citations.map((c, i) => (
+          <div key={i} className="bg-gray-900/50 rounded p-3">
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-gray-200">
+                  Article {c.article_number}
+                </span>
+                {c.law_name && (
+                  <span className="text-[10px] text-gray-500 italic">{c.law_name}</span>
+                )}
+              </div>
+              {c.similarity_score != null && (
+                <span className="text-[10px] text-gray-500">
+                  Similarity: {(c.similarity_score * 100).toFixed(0)}%
+                </span>
+              )}
+            </div>
+            {(c.text_en || c.quoted_text) && (
+              <p className="text-[11px] text-gray-400 leading-relaxed">
+                {(c.text_en || c.quoted_text || "").slice(0, 300)}
+                {(c.text_en || c.quoted_text || "").length > 300 ? "..." : ""}
+              </p>
+            )}
+            {c.relevance && (
+              <p className="text-[10px] text-gray-500 mt-1 italic">{c.relevance}</p>
+            )}
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+function RetrievalMetricsSection({
+  metrics,
+  grounding,
+  coverage,
+}: {
+  metrics: RetrievalMetrics;
+  grounding?: number;
+  coverage?: number;
+}) {
+  return (
+    <Section title="Verification Metrics">
+      <div className="grid grid-cols-2 gap-4">
+        {/* Scores */}
+        <div className="space-y-2">
+          {grounding != null && (
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-500">Grounding Score</span>
+              <ConfidenceBadge value={grounding} />
+            </div>
+          )}
+          {coverage != null && (
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-500">Retrieval Coverage</span>
+              <ConfidenceBadge value={coverage} />
+            </div>
+          )}
+          {metrics.coverage_score != null && coverage == null && (
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-500">Coverage Score</span>
+              <ConfidenceBadge value={metrics.coverage_score} />
+            </div>
+          )}
+        </div>
+
+        {/* Details */}
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+          {metrics.total_iterations != null && (
+            <div className="flex justify-between">
+              <span className="text-gray-500">Iterations</span>
+              <span className="text-gray-300 font-mono">{metrics.total_iterations}</span>
+            </div>
+          )}
+          {metrics.total_articles != null && (
+            <div className="flex justify-between">
+              <span className="text-gray-500">Articles</span>
+              <span className="text-gray-300 font-mono">{metrics.total_articles}</span>
+            </div>
+          )}
+          {metrics.stop_reason && (
+            <div className="flex justify-between col-span-2">
+              <span className="text-gray-500">Stop Reason</span>
+              <span className="text-gray-300">{metrics.stop_reason}</span>
+            </div>
+          )}
+          {metrics.avg_similarity != null && (
+            <div className="flex justify-between">
+              <span className="text-gray-500">Avg Similarity</span>
+              <span className="text-gray-300 font-mono">{(metrics.avg_similarity * 100).toFixed(0)}%</span>
+            </div>
+          )}
+          {metrics.top_3_similarity != null && (
+            <div className="flex justify-between">
+              <span className="text-gray-500">Top-3 Similarity</span>
+              <span className="text-gray-300 font-mono">{(metrics.top_3_similarity * 100).toFixed(0)}%</span>
+            </div>
+          )}
+          {metrics.total_latency_ms != null && (
+            <div className="flex justify-between">
+              <span className="text-gray-500">Latency</span>
+              <span className="text-gray-300 font-mono">{(metrics.total_latency_ms / 1000).toFixed(1)}s</span>
+            </div>
+          )}
+          {metrics.estimated_cost_usd != null && (
+            <div className="flex justify-between">
+              <span className="text-gray-500">Est. Cost</span>
+              <span className="text-gray-300 font-mono">${metrics.estimated_cost_usd.toFixed(4)}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </Section>
+  );
 }

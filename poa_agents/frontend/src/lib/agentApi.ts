@@ -1,6 +1,7 @@
-// Calls go through the Next.js API route to avoid CORS issues.
-// The route handler proxies to the actual agent at CONDENSER_URL (server-side).
-const PROXY_URL = "/api/agent/condenser";
+// Calls go through Next.js API routes to avoid CORS issues.
+// The route handlers proxy to the actual agents (server-side).
+const CONDENSER_PROXY = "/api/agent/condenser";
+const LEGAL_SEARCH_PROXY = "/api/agent/legal-search";
 
 export interface AgentPayload {
   case_data: {
@@ -13,7 +14,7 @@ export interface AgentPayload {
 }
 
 /**
- * JSON-RPC 2.0 response from the agent.
+ * JSON-RPC 2.0 response from an agent.
  *
  * The ACP server wraps the TextContent in a SendMessageResponse:
  *   result.content = { author, content (string), type, ... }
@@ -33,28 +34,19 @@ export interface JSONRPCResponse {
 }
 
 /**
- * Call the condenser agent via ACP JSON-RPC 2.0 endpoint (Mode B — direct input).
- *
- * The agent receives the full payload inline and skips its own Supabase fetch.
- * It runs the same LLM prompt as CLI mode and returns the legal brief.
- *
- * Protocol: POST /api with JSON-RPC 2.0 body, method "message/send".
+ * Build a JSON-RPC 2.0 request body for an ACP message/send call.
  */
-export async function runCondenserAgent(
-  payload: AgentPayload
-): Promise<string> {
+function buildRpcBody(agentId: string, contentPayload: string) {
   const now = new Date().toISOString();
-
-  // Build the JSON-RPC 2.0 request matching ACP SendMessageParams schema
-  const rpcBody = {
+  return {
     jsonrpc: "2.0",
     method: "message/send",
     params: {
       agent: {
-        id: "condenser-agent",
-        name: "condenser-agent",
+        id: agentId,
+        name: agentId,
         acp_type: "sync",
-        description: "Condenser agent",
+        description: `${agentId} agent`,
         created_at: now,
         updated_at: now,
       },
@@ -64,17 +56,18 @@ export async function runCondenserAgent(
       content: {
         type: "text",
         author: "user",
-        content: JSON.stringify({
-          case_data: payload.case_data,
-          document_extractions: payload.document_extractions,
-          additional_context: payload.additional_context,
-        }),
+        content: contentPayload,
       },
     },
     id: `req-${Date.now()}`,
   };
+}
 
-  const res = await fetch(PROXY_URL, {
+/**
+ * Send a JSON-RPC 2.0 request to an agent proxy and extract the text content.
+ */
+async function callAgent(proxyUrl: string, rpcBody: unknown): Promise<string> {
+  const res = await fetch(proxyUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(rpcBody),
@@ -85,7 +78,7 @@ export async function runCondenserAgent(
   if (!res.ok) {
     throw new Error(
       (data as { error?: string }).error ??
-        `Condenser agent returned ${res.status}`
+        `Agent returned ${res.status}`
     );
   }
 
@@ -98,8 +91,7 @@ export async function runCondenserAgent(
   // result is a SendMessageResponse: { content: TextContent, index, type, ... }
   // TextContent is: { author, content (string), type, format, ... }
   // So the actual markdown lives at result.content.content
-  const textContent = rpc.result?.content;
-  const markdown = textContent?.content;
+  const markdown = rpc.result?.content?.content;
   if (!markdown) {
     throw new Error("Agent returned empty response");
   }
@@ -108,12 +100,50 @@ export async function runCondenserAgent(
 }
 
 /**
- * Parse the condenser result content.
+ * Call the condenser agent via ACP JSON-RPC 2.0 endpoint (Mode B -- direct input).
  *
- * The agent returns markdown with an embedded JSON block inside a <details> tag:
+ * The agent receives the full payload inline and skips its own Supabase fetch.
+ * It runs the same LLM prompt as CLI mode and returns the legal brief.
+ */
+export async function runCondenserAgent(
+  payload: AgentPayload
+): Promise<string> {
+  const rpcBody = buildRpcBody(
+    "condenser-agent",
+    JSON.stringify({
+      case_data: payload.case_data,
+      document_extractions: payload.document_extractions,
+      additional_context: payload.additional_context,
+    })
+  );
+
+  return callAgent(CONDENSER_PROXY, rpcBody);
+}
+
+/**
+ * Call the legal search agent via ACP JSON-RPC 2.0 endpoint (Mode B -- direct input).
+ *
+ * The agent receives the legal brief inline and skips its own Supabase fetch.
+ * It runs the same decompose -> retrieve -> synthesize pipeline as CLI mode.
+ */
+export async function runLegalSearchAgent(
+  legalBrief: Record<string, unknown>
+): Promise<string> {
+  const rpcBody = buildRpcBody(
+    "legal-search-agent",
+    JSON.stringify({ legal_brief: legalBrief })
+  );
+
+  return callAgent(LEGAL_SEARCH_PROXY, rpcBody);
+}
+
+/**
+ * Parse agent result content.
+ *
+ * Both agents return markdown with an embedded JSON block inside a <details> tag:
  *
  *   <details>
- *   <summary>Raw JSON for Legal Search Agent</summary>
+ *   <summary>Raw JSON ...</summary>
  *
  *   ```json
  *   { ... }
@@ -123,7 +153,7 @@ export async function runCondenserAgent(
  * This function extracts and parses that JSON. If the content is already valid
  * JSON (no markdown wrapper), it parses directly. Falls back to raw string.
  */
-export function parseCondenserContent(
+export function parseAgentContent(
   raw: string
 ): Record<string, unknown> | string {
   // 1. Try direct JSON parse (agent may return pure JSON string)
@@ -133,7 +163,7 @@ export function parseCondenserContent(
       return direct as Record<string, unknown>;
     }
   } catch {
-    // Not pure JSON — try extraction
+    // Not pure JSON -- try extraction
   }
 
   // 2. Extract from ```json ... ``` fenced code block (inside <details>)
@@ -145,7 +175,7 @@ export function parseCondenserContent(
         return parsed as Record<string, unknown>;
       }
     } catch {
-      // Malformed JSON inside fence — fall through
+      // Malformed JSON inside fence -- fall through
     }
   }
 

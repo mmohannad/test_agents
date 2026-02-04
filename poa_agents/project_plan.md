@@ -26,7 +26,14 @@
 | Next.js API route proxy (`app/api/agent/condenser/route.ts`) — avoids CORS, proxies to `localhost:8012/api` | Phase 2 | Done |
 | Wired Run Agents → Tier 1 validation → condenser agent call → results display | Phase 2 | Done |
 | `ResultsDrawer` — structured report with dedicated section components + raw JSON tab | Phase 2 | Done |
-| JSON extraction from markdown — `parseCondenserContent` extracts embedded JSON from agent's `<details>` block | Phase 2 | Done |
+| JSON extraction from markdown — `parseAgentContent` extracts embedded JSON from agent's `<details>` block | Phase 2 | Done |
+| Next.js API route proxy (`app/api/agent/legal-search/route.ts`) — proxies to `localhost:8013/api` | Phase 2 | Done |
+| Legal Search Agent integration — condenser → legal search auto-chain (Mode B, in-memory) | Phase 2 | Done |
+| Per-agent state management — separate status/result/error for condenser and legal search | Phase 2 | Done |
+| Two-step progress in ControlRow — "Step 1/2: Running condenser..." → "Step 2/2: Running legal search..." | Phase 2 | Done |
+| Legal Opinion tab in ResultsDrawer — DecisionBanner, IssuesAnalyzed, Citations, RetrievalMetrics sections | Phase 2 | Done |
+| Three-tab ResultsDrawer — Legal Brief, Legal Opinion, Raw JSON tabs with loading/error states | Phase 2 | Done |
+| `dev.sh` — single-command startup script for all services (condenser, legal search, frontend) | — | Done |
 
 ### Discovered: ACP Protocol Details
 
@@ -40,11 +47,9 @@ During implementation, the following was discovered about the AgentEx ACP protoc
 | **Response nesting** | `result.content.content` — `result` is a `SendMessageResponse`, `result.content` is a `TextContent` object, `result.content.content` is the actual string |
 | **Agent output format** | Markdown string with embedded JSON in `<details><summary>...</summary>\n```json\n{...}\n```\n</details>` |
 
-### In Progress
+### Discovered: Mode B Does NOT Save to DB
 
-| Item | Phase | Notes |
-|------|-------|-------|
-| Legal Search Agent integration (Step 2b: condenser → legal search chain) | Phase 2 | Backend `return_format=json` branch may be needed |
+In Mode B (frontend path), the condenser agent does **not** save the Legal Brief to the database. This is because `application_id` is `None` when data is sent directly in the payload, and the `save_legal_brief()` call is guarded by `if application_id:` (condenser `acp.py:291`). The entire condenser → legal search chain runs in-memory through the frontend — no DB writes for legal briefs or opinions in Mode B.
 
 ### Not Started
 
@@ -55,7 +60,7 @@ During implementation, the following was discovered about the AgentEx ACP protoc
 | `return_format` + `include_artifacts` branch in `legal_search_agent/project/acp.py` | Phase 1 | Not yet needed |
 | Dockerfiles for condenser + legal search + context API | Phase 1 | |
 | `docker-compose.yml` | Phase 1 | |
-| `LegalOpinionView`, `RetrievalTraceView`, `LogsView` components | Phase 2 | After legal search integration |
+| `RetrievalTraceView`, `LogsView` components | Phase 2 | Optional deep-dive views |
 | Dirty-state tracking (highlight edited fields) | Phase 3 | |
 | Diff summary before running agents ("You modified 3 fields") | Phase 3 | |
 | Cloud VM deployment | Phase 4 | |
@@ -679,9 +684,18 @@ The frontend always uses **Mode B** (direct-input). CLI/Agentex UI continues to 
        └─► parseCondenserContent extracts JSON from ```json fence
        └─► ResultsDrawer renders structured report sections
 
-   Step 2c — Legal Search (NOT YET IMPLEMENTED):
-   └─► Will chain from condenser output
-       └─► Send legal_brief to legal search agent on port 8013
+   Step 2c — Legal Search Agent (JSON-RPC 2.0, auto-chained):
+   └─► POST /api/agent/legal-search (Next.js proxy route)
+       └─► Proxied to http://localhost:8013/api
+       Body (JSON-RPC 2.0): same structure as condenser, content is:
+         JSON.stringify({ "legal_brief": <condenser output JSON> })
+       Agent behavior:
+         - Sees legal_brief in payload → skips DB fetch (existing Mode B path)
+         - Runs same decompose → retrieve → synthesize pipeline as CLI
+         - Returns markdown with embedded JSON in <details> block
+       Response nesting: result.content.content → markdown string
+       └─► parseAgentContent extracts JSON from ```json fence
+       └─► ResultsDrawer renders Legal Opinion tab
 ```
 
 **Parity note:** If a user runs the same application through CLI (Mode A) and then through the frontend (Mode B) without editing any fields, the LLM receives the **exact same prompt** with the **exact same data**. The only difference is how the result enters (DB fetch vs direct payload) and is consumed (markdown display vs parsed JSON).
@@ -697,8 +711,10 @@ frontend/
 │   │   ├── globals.css                         # Tailwind v4 imports
 │   │   └── api/
 │   │       └── agent/
-│   │           └── condenser/
-│   │               └── route.ts                # Server-side proxy → localhost:8012/api (CORS)
+│   │           ├── condenser/
+│   │           │   └── route.ts                # Server-side proxy → localhost:8012/api (CORS)
+│   │           └── legal-search/
+│   │               └── route.ts                # Server-side proxy → localhost:8013/api (CORS)
 │   ├── components/
 │   │   ├── ControlRow.tsx                      # App ID input, Load, Run Agents, status badges
 │   │   ├── StructuredPanel.tsx                 # Left panel: application, parties, capacity_proofs cards
