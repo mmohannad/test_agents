@@ -1,2 +1,22 @@
 **/.env
 .env
+.env.local
+
+# Dependencies
+node_modules/
+
+# Next.js
+.next/
+
+# TypeScript
+*.tsbuildinfo
+
+# OS
+.DS_Store
+
+# Build
+*.zip
+
+# npm logs
+~/.npm/
+**/~/.npm/
