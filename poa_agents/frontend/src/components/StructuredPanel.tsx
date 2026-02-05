@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useLocale } from "@/lib/i18n";
 import { EditableField } from "./EditableField";
 import { JsonViewer } from "./JsonViewer";
 
@@ -30,11 +31,11 @@ function SectionHeader({ title, count }: { title: string; count?: number }) {
   );
 }
 
-function partyTypeLabel(partyType: string) {
+function partyTypeLabel(partyType: string, t: (key: string) => string) {
   switch (partyType) {
-    case "first_party": return "First Party";
-    case "second_party": return "Second Party";
-    case "third_party": return "Third Party";
+    case "first_party": return t("structuredPanel.firstParty");
+    case "second_party": return t("structuredPanel.secondParty");
+    case "third_party": return t("structuredPanel.thirdParty");
     default: return partyType;
   }
 }
@@ -55,6 +56,7 @@ export function StructuredPanel({
   onUpdateParty,
   onUpdateCapacityProof,
 }: StructuredPanelProps) {
+  const { t } = useLocale();
   const app = data.application;
   const parties = data.parties;
   const proofs = data.capacity_proofs;
@@ -79,31 +81,31 @@ export function StructuredPanel({
   return (
     <div className="p-5 space-y-6">
       <div className="flex items-center justify-between mb-2">
-        <h2 className="text-base font-bold text-gray-100">Structured Context</h2>
-        <span className="text-xs text-gray-600">click any field to edit</span>
+        <h2 className="text-base font-bold text-gray-100">{t("structuredPanel.title")}</h2>
+        <span className="text-xs text-gray-600">{t("common.clickToEdit")}</span>
       </div>
 
       {/* Application */}
       <section className="bg-gray-900 border border-gray-800 rounded-lg p-4 space-y-1">
-        <SectionHeader title="Application" />
-        <EditableField label="Application Number" value={app.application_number} fieldKey="application_number" onChange={onUpdateApplication} />
-        <EditableField label="Status" value={app.status} fieldKey="status" onChange={onUpdateApplication} />
-        <EditableField label="Processing Stage" value={app.processing_stage} fieldKey="processing_stage" onChange={onUpdateApplication} />
-        <EditableField label="Transaction Type" value={app.transaction_type_code} fieldKey="transaction_type_code" onChange={onUpdateApplication} />
-        <EditableField label="Transaction Value" value={app.transaction_value} fieldKey="transaction_value" onChange={onUpdateApplication} />
-        <EditableField label="Subject (EN)" value={app.transaction_subject_en} fieldKey="transaction_subject_en" onChange={onUpdateApplication} />
-        <EditableField label="Subject (AR)" value={app.transaction_subject_ar} fieldKey="transaction_subject_ar" onChange={onUpdateApplication} dir="rtl" />
-        <EditableField label="POA Duration Type" value={app.poa_duration_type} fieldKey="poa_duration_type" onChange={onUpdateApplication} />
-        <EditableField label="POA Start Date" value={app.poa_start_date} fieldKey="poa_start_date" onChange={onUpdateApplication} />
-        <EditableField label="POA End Date" value={app.poa_end_date} fieldKey="poa_end_date" onChange={onUpdateApplication} />
-        <EditableField label="Submitted" value={app.submitted_at} fieldKey="submitted_at" onChange={onUpdateApplication} />
+        <SectionHeader title={t("structuredPanel.application")} />
+        <EditableField label={t("structuredPanel.applicationNumber")} value={app.application_number} fieldKey="application_number" onChange={onUpdateApplication} />
+        <EditableField label={t("structuredPanel.status")} value={app.status} fieldKey="status" onChange={onUpdateApplication} />
+        <EditableField label={t("structuredPanel.processingStage")} value={app.processing_stage} fieldKey="processing_stage" onChange={onUpdateApplication} />
+        <EditableField label={t("structuredPanel.transactionType")} value={app.transaction_type_code} fieldKey="transaction_type_code" onChange={onUpdateApplication} />
+        <EditableField label={t("structuredPanel.transactionValue")} value={app.transaction_value} fieldKey="transaction_value" onChange={onUpdateApplication} />
+        <EditableField label={t("structuredPanel.subjectEn")} value={app.transaction_subject_en} fieldKey="transaction_subject_en" onChange={onUpdateApplication} />
+        <EditableField label={t("structuredPanel.subjectAr")} value={app.transaction_subject_ar} fieldKey="transaction_subject_ar" onChange={onUpdateApplication} dir="rtl" />
+        <EditableField label={t("structuredPanel.poaDurationType")} value={app.poa_duration_type} fieldKey="poa_duration_type" onChange={onUpdateApplication} />
+        <EditableField label={t("structuredPanel.poaStartDate")} value={app.poa_start_date} fieldKey="poa_start_date" onChange={onUpdateApplication} />
+        <EditableField label={t("structuredPanel.poaEndDate")} value={app.poa_end_date} fieldKey="poa_end_date" onChange={onUpdateApplication} />
+        <EditableField label={t("structuredPanel.submittedAt")} value={app.submitted_at} fieldKey="submitted_at" onChange={onUpdateApplication} />
       </section>
 
       {/* Parties */}
       <section className="space-y-3">
-        <SectionHeader title="Parties" count={parties.length} />
+        <SectionHeader title={t("structuredPanel.parties")} count={parties.length} />
         {parties.length === 0 && (
-          <p className="text-gray-600 text-sm italic">No parties found</p>
+          <p className="text-gray-600 text-sm italic">{t("structuredPanel.noParties")}</p>
         )}
         {parties.map((party, i) => {
           const role = String(party.party_role || "unknown");
@@ -119,20 +121,20 @@ export function StructuredPanel({
                   {role}
                 </span>
                 <span className="text-xs opacity-60">
-                  ({partyTypeLabel(pType)})
+                  ({partyTypeLabel(pType, t)})
                 </span>
               </div>
 
-              <EditableField label="Full Name (EN)" value={party.full_name_en} fieldKey="full_name_en" onChange={update} />
-              <EditableField label="Full Name (AR)" value={party.full_name_ar} fieldKey="full_name_ar" onChange={update} dir="rtl" />
-              <EditableField label="Capacity" value={party.capacity} fieldKey="capacity" onChange={update} />
-              <EditableField label="ID Type" value={party.national_id_type} fieldKey="national_id_type" onChange={update} />
-              <EditableField label="ID Number" value={party.national_id} fieldKey="national_id" onChange={update} />
-              <EditableField label="ID Expiry" value={party.id_validity_date} fieldKey="id_validity_date" onChange={update} />
-              <EditableField label="Citizenship" value={party.nationality_code} fieldKey="nationality_code" onChange={update} />
-              <EditableField label="Gender" value={party.gender} fieldKey="gender" onChange={update} />
-              <EditableField label="Phone" value={party.phone} fieldKey="phone" onChange={update} />
-              <EditableField label="Email" value={party.email} fieldKey="email" onChange={update} />
+              <EditableField label={t("structuredPanel.fullNameEn")} value={party.full_name_en} fieldKey="full_name_en" onChange={update} />
+              <EditableField label={t("structuredPanel.fullNameAr")} value={party.full_name_ar} fieldKey="full_name_ar" onChange={update} dir="rtl" />
+              <EditableField label={t("structuredPanel.capacity")} value={party.capacity} fieldKey="capacity" onChange={update} />
+              <EditableField label={t("structuredPanel.idType")} value={party.national_id_type} fieldKey="national_id_type" onChange={update} />
+              <EditableField label={t("structuredPanel.idNumber")} value={party.national_id} fieldKey="national_id" onChange={update} />
+              <EditableField label={t("structuredPanel.idExpiry")} value={party.id_validity_date} fieldKey="id_validity_date" onChange={update} />
+              <EditableField label={t("structuredPanel.nationality")} value={party.nationality_code} fieldKey="nationality_code" onChange={update} />
+              <EditableField label={t("structuredPanel.gender")} value={party.gender} fieldKey="gender" onChange={update} />
+              <EditableField label={t("structuredPanel.phone")} value={party.phone} fieldKey="phone" onChange={update} />
+              <EditableField label={t("structuredPanel.email")} value={party.email} fieldKey="email" onChange={update} />
             </div>
           );
         })}
@@ -140,15 +142,16 @@ export function StructuredPanel({
 
       {/* Permissions / Powers to be Granted */}
       <section className="space-y-3">
-        <SectionHeader title="Permissions to be Granted" count={powerEntries.length} />
+        <SectionHeader title={t("structuredPanel.permissions")} count={powerEntries.length} />
         {powerEntries.length === 0 ? (
-          <p className="text-gray-600 text-sm italic">No permissions/powers found</p>
+          <p className="text-gray-600 text-sm italic">{t("structuredPanel.noPermissions")}</p>
         ) : (
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
             <EditablePowersList
               entries={powerEntries}
               proofs={proofs}
               onUpdateProof={onUpdateCapacityProof}
+              t={t}
             />
           </div>
         )}
@@ -161,24 +164,24 @@ export function StructuredPanel({
         if (!textAr && !textEn) return null;
         return (
           <section key={pi} className="space-y-3">
-            <SectionHeader title={`POA Full Text (Proof ${pi + 1})`} />
+            <SectionHeader title={`${t("structuredPanel.poaFullText")} (${t("structuredPanel.proof")} ${pi + 1})`} />
             <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 space-y-3">
               {/* Capacity proof metadata */}
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 mb-3">
-                <EditableField label="Capacity Type" value={proof.capacity_type} fieldKey="capacity_type" onChange={(k, v) => onUpdateCapacityProof(pi, k, v)} />
-                <EditableField label="CR Number" value={proof.cr_number} fieldKey="cr_number" onChange={(k, v) => onUpdateCapacityProof(pi, k, v)} />
-                <EditableField label="Company Name" value={proof.company_name} fieldKey="company_name" onChange={(k, v) => onUpdateCapacityProof(pi, k, v)} />
-                <EditableField label="CR Expiry" value={proof.cr_expiry_date} fieldKey="cr_expiry_date" onChange={(k, v) => onUpdateCapacityProof(pi, k, v)} />
-                <EditableField label="POA Date" value={proof.poa_date} fieldKey="poa_date" onChange={(k, v) => onUpdateCapacityProof(pi, k, v)} />
-                <EditableField label="POA Expiry" value={proof.poa_expiry} fieldKey="poa_expiry" onChange={(k, v) => onUpdateCapacityProof(pi, k, v)} />
-                <EditableField label="General POA" value={proof.is_general_poa ? "Yes" : "No"} fieldKey="is_general_poa" onChange={(k, v) => onUpdateCapacityProof(pi, k, v === "Yes" || v === "yes" || v === "true")} />
-                <EditableField label="Special POA" value={proof.is_special_poa ? "Yes" : "No"} fieldKey="is_special_poa" onChange={(k, v) => onUpdateCapacityProof(pi, k, v === "Yes" || v === "yes" || v === "true")} />
-                <EditableField label="Substitution Right" value={proof.has_substitution_right ? "Yes" : "No"} fieldKey="has_substitution_right" onChange={(k, v) => onUpdateCapacityProof(pi, k, v === "Yes" || v === "yes" || v === "true")} />
+                <EditableField label={t("structuredPanel.capacityType")} value={proof.capacity_type} fieldKey="capacity_type" onChange={(k, v) => onUpdateCapacityProof(pi, k, v)} />
+                <EditableField label={t("structuredPanel.crNumber")} value={proof.cr_number} fieldKey="cr_number" onChange={(k, v) => onUpdateCapacityProof(pi, k, v)} />
+                <EditableField label={t("structuredPanel.companyName")} value={proof.company_name} fieldKey="company_name" onChange={(k, v) => onUpdateCapacityProof(pi, k, v)} />
+                <EditableField label={t("structuredPanel.crExpiry")} value={proof.cr_expiry_date} fieldKey="cr_expiry_date" onChange={(k, v) => onUpdateCapacityProof(pi, k, v)} />
+                <EditableField label={t("structuredPanel.poaDate")} value={proof.poa_date} fieldKey="poa_date" onChange={(k, v) => onUpdateCapacityProof(pi, k, v)} />
+                <EditableField label={t("structuredPanel.poaExpiry")} value={proof.poa_expiry} fieldKey="poa_expiry" onChange={(k, v) => onUpdateCapacityProof(pi, k, v)} />
+                <EditableField label={t("structuredPanel.generalPoa")} value={proof.is_general_poa ? t("common.yes") : t("common.no")} fieldKey="is_general_poa" onChange={(k, v) => onUpdateCapacityProof(pi, k, v === t("common.yes") || v === "Yes" || v === "yes" || v === "true")} />
+                <EditableField label={t("structuredPanel.specialPoa")} value={proof.is_special_poa ? t("common.yes") : t("common.no")} fieldKey="is_special_poa" onChange={(k, v) => onUpdateCapacityProof(pi, k, v === t("common.yes") || v === "Yes" || v === "yes" || v === "true")} />
+                <EditableField label={t("structuredPanel.substitutionRight")} value={proof.has_substitution_right ? t("common.yes") : t("common.no")} fieldKey="has_substitution_right" onChange={(k, v) => onUpdateCapacityProof(pi, k, v === t("common.yes") || v === "Yes" || v === "yes" || v === "true")} />
               </div>
 
               {textEn && (
                 <div>
-                  <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">English</h4>
+                  <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">{t("structuredPanel.english")}</h4>
                   <EditableField
                     label=""
                     value={textEn}
@@ -190,7 +193,7 @@ export function StructuredPanel({
               )}
               {textAr && (
                 <div>
-                  <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Arabic</h4>
+                  <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">{t("structuredPanel.arabic")}</h4>
                   <EditableField
                     label=""
                     value={textAr}
@@ -207,7 +210,7 @@ export function StructuredPanel({
       })}
 
       {/* Raw JSON */}
-      <JsonViewer data={data} label="Full Structured Payload (Raw JSON)" />
+      <JsonViewer data={data} label={t("structuredPanel.fullStructuredJson")} />
     </div>
   );
 }
@@ -218,10 +221,12 @@ function EditablePowersList({
   entries,
   proofs,
   onUpdateProof,
+  t,
 }: {
   entries: { proofIndex: number; powerIndex: number; ar: string; en: string }[];
   proofs: Record<string, unknown>[];
   onUpdateProof: (proofIndex: number, key: string, value: unknown) => void;
+  t: (key: string) => string;
 }) {
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [draftEn, setDraftEn] = useState("");
@@ -259,7 +264,7 @@ function EditablePowersList({
                 type="text"
                 value={draftEn}
                 onChange={(e) => setDraftEn(e.target.value)}
-                placeholder="English"
+                placeholder={t("structuredPanel.english")}
                 className="w-full bg-gray-900 border border-blue-600 rounded px-2 py-1 text-sm text-gray-100 focus:outline-none"
                 onKeyDown={(e) => { if (e.key === "Escape") setEditingIdx(null); }}
               />
@@ -267,7 +272,7 @@ function EditablePowersList({
                 type="text"
                 value={draftAr}
                 onChange={(e) => setDraftAr(e.target.value)}
-                placeholder="Arabic"
+                placeholder={t("structuredPanel.arabic")}
                 dir="rtl"
                 className="w-full bg-gray-900 border border-blue-600 rounded px-2 py-1 text-sm text-gray-100 focus:outline-none"
                 onKeyDown={(e) => {
@@ -276,8 +281,8 @@ function EditablePowersList({
                 }}
               />
               <div className="flex gap-2 mt-1">
-                <button onClick={commit} className="text-xs text-blue-400 hover:text-blue-300">Save</button>
-                <button onClick={() => setEditingIdx(null)} className="text-xs text-gray-500 hover:text-gray-400">Cancel</button>
+                <button onClick={commit} className="text-xs text-blue-400 hover:text-blue-300">{t("common.save")}</button>
+                <button onClick={() => setEditingIdx(null)} className="text-xs text-gray-500 hover:text-gray-400">{t("common.cancel")}</button>
               </div>
             </li>
           );
@@ -296,7 +301,7 @@ function EditablePowersList({
               )}
             </div>
             <span className="text-gray-700 text-xs opacity-0 group-hover:opacity-100 transition-opacity mt-0.5">
-              edit
+              {t("common.edit")}
             </span>
           </li>
         );

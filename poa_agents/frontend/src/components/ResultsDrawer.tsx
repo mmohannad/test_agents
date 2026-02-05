@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { JsonViewer } from "./JsonViewer";
+import { useLocale } from "@/lib/i18n";
 
 type AgentStepStatus = "idle" | "running" | "completed" | "error";
 
@@ -133,6 +134,9 @@ interface Citation {
   law_name?: string;
   chapter?: string;
   text_en?: string;
+  text_ar?: string;
+  text_arabic?: string;
+  text_english?: string;
   quoted_text?: string;
   relevance?: string;
   similarity_score?: number;
@@ -195,6 +199,7 @@ export function ResultsDrawer({
   legalSearchError,
   onClose,
 }: ResultsDrawerProps) {
+  const { t } = useLocale();
   const [activeTab, setActiveTab] = useState<"brief" | "opinion" | "raw">("brief");
 
   const briefIsStructured = typeof condenserResult === "object" && condenserResult !== null;
@@ -204,9 +209,9 @@ export function ResultsDrawer({
   const opinion: LegalOpinion | null = opinionIsStructured ? (legalSearchResult as LegalOpinion) : null;
 
   const tabs: { key: "brief" | "opinion" | "raw"; label: string }[] = [
-    { key: "brief", label: "Legal Brief" },
-    { key: "opinion", label: "Legal Opinion" },
-    { key: "raw", label: "Raw JSON" },
+    { key: "brief", label: t("resultsDrawer.legalBrief") },
+    { key: "opinion", label: t("resultsDrawer.legalOpinion") },
+    { key: "raw", label: t("resultsDrawer.rawJson") },
   ];
 
   return (
@@ -214,7 +219,7 @@ export function ResultsDrawer({
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-3 border-b border-gray-800">
         <div className="flex items-center gap-4">
-          <h2 className="text-sm font-bold text-gray-100">Agent Results</h2>
+          <h2 className="text-sm font-bold text-gray-100">{t("resultsDrawer.title")}</h2>
           <div className="flex gap-1">
             {tabs.map((tab) => (
               <button
@@ -238,7 +243,7 @@ export function ResultsDrawer({
           onClick={onClose}
           className="text-gray-500 hover:text-gray-300 transition-colors text-sm"
         >
-          Close
+          {t("resultsDrawer.close")}
         </button>
       </div>
 
@@ -276,7 +281,7 @@ export function ResultsDrawer({
                 </pre>
               </div>
             ) : (
-              <p className="text-gray-500 text-sm">No condenser result yet.</p>
+              <p className="text-gray-500 text-sm">{t("resultsDrawer.noCondenserResults")}</p>
             )}
           </div>
         )}
@@ -288,13 +293,13 @@ export function ResultsDrawer({
               <div className="flex items-center gap-3 bg-blue-950/30 border border-blue-900/50 rounded-lg px-4 py-3">
                 <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
                 <span className="text-sm text-blue-300">
-                  Legal search agent is running... This may take a while as it performs agentic RAG.
+                  {t("resultsDrawer.legalSearchRunning")}
                 </span>
               </div>
             )}
             {legalSearchStatus === "error" && (
               <div className="bg-red-950/30 border border-red-800/50 rounded-lg px-4 py-3">
-                <p className="text-sm text-red-400">Legal search agent failed</p>
+                <p className="text-sm text-red-400">{t("resultsDrawer.legalSearchFailed")}</p>
                 {legalSearchError && (
                   <p className="text-xs text-red-300 mt-1">{legalSearchError}</p>
                 )}
@@ -302,7 +307,7 @@ export function ResultsDrawer({
             )}
             {legalSearchStatus === "idle" && !legalSearchResult && (
               <p className="text-gray-500 text-sm">
-                Legal search has not run yet. It will auto-start after condenser completes.
+                {t("resultsDrawer.legalSearchPending")}
               </p>
             )}
             {opinion ? (
@@ -311,13 +316,13 @@ export function ResultsDrawer({
                 <OpinionSummarySection opinion={opinion} />
                 <IssuesAnalyzedSection opinion={opinion} />
                 {opinion.concerns && opinion.concerns.length > 0 && (
-                  <StringListSection title="Concerns" items={opinion.concerns} color="yellow" />
+                  <StringListSection title={t("resultsDrawer.concerns")} items={opinion.concerns} color="yellow" />
                 )}
                 {opinion.recommendations && opinion.recommendations.length > 0 && (
-                  <StringListSection title="Recommendations" items={opinion.recommendations} color="blue" />
+                  <StringListSection title={t("resultsDrawer.recommendations")} items={opinion.recommendations} color="blue" />
                 )}
                 {opinion.conditions && opinion.conditions.length > 0 && (
-                  <StringListSection title="Conditions" items={opinion.conditions} color="orange" />
+                  <StringListSection title={t("resultsDrawer.conditions")} items={opinion.conditions} color="orange" />
                 )}
                 <CitationsSection opinion={opinion} />
                 {opinion.retrieval_metrics && (
@@ -338,13 +343,13 @@ export function ResultsDrawer({
         {activeTab === "raw" && (
           <div className="space-y-4">
             {condenserResult && (
-              <JsonViewer data={condenserResult} label="Condenser Agent (Legal Brief)" defaultOpen />
+              <JsonViewer data={condenserResult} label={t("resultsDrawer.condenserLabel")} defaultOpen />
             )}
             {legalSearchResult && (
-              <JsonViewer data={legalSearchResult} label="Legal Search Agent (Opinion)" defaultOpen />
+              <JsonViewer data={legalSearchResult} label={t("resultsDrawer.legalSearchLabel")} defaultOpen />
             )}
             {!condenserResult && !legalSearchResult && (
-              <p className="text-gray-500 text-sm">No results yet.</p>
+              <p className="text-gray-500 text-sm">{t("resultsDrawer.noResults")}</p>
             )}
           </div>
         )}
@@ -461,6 +466,7 @@ function formatLabel(key: string): string {
 // =====================================================================
 
 function ReportHeader({ brief }: { brief: LegalBrief }) {
+  const { t } = useLocale();
   const confidence = brief.extraction_confidence;
   const confidenceColor =
     confidence != null
@@ -476,13 +482,13 @@ function ReportHeader({ brief }: { brief: LegalBrief }) {
       <div className="flex items-center gap-6 text-sm">
         {brief.application_id && (
           <div>
-            <span className="text-gray-500 text-xs">Application</span>
+            <span className="text-gray-500 text-xs">{t("resultsDrawer.application")}</span>
             <p className="text-gray-200 font-mono text-xs">{brief.application_id}</p>
           </div>
         )}
         {brief.generated_at && (
           <div>
-            <span className="text-gray-500 text-xs">Generated</span>
+            <span className="text-gray-500 text-xs">{t("resultsDrawer.generatedAt")}</span>
             <p className="text-gray-200 text-xs">
               {new Date(brief.generated_at).toLocaleString()}
             </p>
@@ -491,7 +497,7 @@ function ReportHeader({ brief }: { brief: LegalBrief }) {
       </div>
       {confidence != null && (
         <div className="text-right">
-          <span className="text-gray-500 text-xs">Extraction Confidence</span>
+          <span className="text-gray-500 text-xs">{t("resultsDrawer.extractionConfidence")}</span>
           <p className={`text-sm font-semibold ${confidenceColor}`}>
             {(confidence * 100).toFixed(0)}%
           </p>
@@ -502,18 +508,20 @@ function ReportHeader({ brief }: { brief: LegalBrief }) {
 }
 
 function CaseSummarySection({ data }: { data: CaseSummary }) {
+  const { t } = useLocale();
   return (
-    <Section title="Case Summary">
+    <Section title={t("resultsDrawer.caseSummary")}>
       <div className="grid grid-cols-3 gap-4 text-sm">
-        <KV label="Application #" value={data.application_number} />
-        <KV label="Transaction Type" value={data.transaction_type} />
-        <KV label="Description" value={data.transaction_description} span={3} />
+        <KV label={t("resultsDrawer.applicationNumber")} value={data.application_number} />
+        <KV label={t("resultsDrawer.transactionType")} value={data.transaction_type} />
+        <KV label={t("resultsDrawer.description")} value={data.transaction_description} span={3} />
       </div>
     </Section>
   );
 }
 
 function PartiesSection({ data }: { data: Party[] }) {
+  const { t } = useLocale();
   const grouped = new Map<string, Party[]>();
   for (const p of data) {
     const role = p.role ?? "unknown";
@@ -523,10 +531,10 @@ function PartiesSection({ data }: { data: Party[] }) {
 
   return (
     <Section
-      title="Parties"
+      title={t("resultsDrawer.parties")}
       badge={
         <span className="text-[10px] text-gray-600 font-normal">
-          {data.length} {data.length === 1 ? "party" : "parties"}
+          {data.length} {data.length === 1 ? t("resultsDrawer.party") : t("resultsDrawer.partiesPlural")}
         </span>
       }
     >
@@ -542,12 +550,12 @@ function PartiesSection({ data }: { data: Party[] }) {
                   key={i}
                   className="bg-gray-900/50 rounded p-3 grid grid-cols-3 gap-x-4 gap-y-2 text-sm"
                 >
-                  <KV label="Name (AR)" value={p.name_ar} />
-                  <KV label="Name (EN)" value={p.name_en} />
-                  <KV label="QID" value={p.qid} mono />
-                  <KV label="Nationality" value={p.nationality} />
-                  <KV label="Capacity Claimed" value={p.capacity_claimed} />
-                  <KV label="Capacity Evidence" value={p.capacity_evidence} />
+                  <KV label={t("resultsDrawer.nameAr")} value={p.name_ar} />
+                  <KV label={t("resultsDrawer.nameEn")} value={p.name_en} />
+                  <KV label={t("resultsDrawer.idNumber")} value={p.qid} mono />
+                  <KV label={t("resultsDrawer.nationality")} value={p.nationality} />
+                  <KV label={t("resultsDrawer.claimedCapacity")} value={p.capacity_claimed} />
+                  <KV label={t("resultsDrawer.capacityEvidence")} value={p.capacity_evidence} />
                 </div>
               ))}
             </div>
@@ -559,28 +567,29 @@ function PartiesSection({ data }: { data: Party[] }) {
 }
 
 function EntitySection({ data }: { data: EntityInformation }) {
+  const { t } = useLocale();
   const authorities = data.registered_authorities ?? [];
 
   return (
-    <Section title="Entity Information">
+    <Section title={t("resultsDrawer.entityInfo")}>
       <div className="grid grid-cols-4 gap-4 text-sm">
-        <KV label="Company (AR)" value={data.company_name_ar} />
-        <KV label="Company (EN)" value={data.company_name_en} />
-        <KV label="Reg. Number" value={data.registration_number} mono />
-        <KV label="Entity Type" value={data.entity_type} />
+        <KV label={t("resultsDrawer.companyAr")} value={data.company_name_ar} />
+        <KV label={t("resultsDrawer.companyEn")} value={data.company_name_en} />
+        <KV label={t("resultsDrawer.registrationNumber")} value={data.registration_number} mono />
+        <KV label={t("resultsDrawer.entityType")} value={data.entity_type} />
       </div>
       {authorities.length > 0 && (
         <div className="mt-3">
           <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
-            Registered Authorities ({authorities.length})
+            {t("resultsDrawer.registeredAuthorities")} ({authorities.length})
           </span>
           <table className="w-full mt-1 text-xs">
             <thead>
               <tr className="text-gray-500 border-b border-gray-700/50">
-                <th className="text-left py-1.5 pr-3 font-medium">Name</th>
-                <th className="text-left py-1.5 pr-3 font-medium">Position</th>
-                <th className="text-left py-1.5 pr-3 font-medium">Authority Scope</th>
-                <th className="text-left py-1.5 font-medium">ID</th>
+                <th className="text-right py-1.5 pr-3 font-medium">{t("resultsDrawer.name")}</th>
+                <th className="text-right py-1.5 pr-3 font-medium">{t("resultsDrawer.position")}</th>
+                <th className="text-right py-1.5 pr-3 font-medium">{t("resultsDrawer.authorityScope")}</th>
+                <th className="text-right py-1.5 font-medium">{t("resultsDrawer.id")}</th>
               </tr>
             </thead>
             <tbody>
@@ -603,33 +612,34 @@ function EntitySection({ data }: { data: EntityInformation }) {
 }
 
 function POADetailsSection({ data }: { data: POADetails }) {
+  const { t } = useLocale();
   const powers = data.powers_granted ?? [];
   const subst =
     data.substitution_allowed === true
-      ? "Yes"
+      ? t("common.yes")
       : data.substitution_allowed === false
-        ? "No"
+        ? t("common.no")
         : typeof data.substitution_allowed === "string"
           ? data.substitution_allowed
           : "\u2014";
 
   return (
-    <Section title="POA Details">
+    <Section title={t("resultsDrawer.poaDetails")}>
       <div className="grid grid-cols-3 gap-4 text-sm">
-        <KV label="Type" value={data.poa_type} />
-        <KV label="Duration" value={data.duration} />
-        <KV label="Substitution Allowed" value={subst} />
+        <KV label={t("resultsDrawer.type")} value={data.poa_type} />
+        <KV label={t("resultsDrawer.duration")} value={data.duration} />
+        <KV label={t("resultsDrawer.substitutionRight")} value={subst} />
       </div>
       {powers.length > 0 && (
         <div className="mt-3">
           <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
-            Powers Granted ({powers.length})
+            {t("resultsDrawer.grantedPowers")} ({powers.length})
           </span>
           <ul className="mt-1 space-y-1">
             {powers.map((p, i) => (
               <li
                 key={i}
-                className="text-xs text-gray-300 pl-3 border-l-2 border-gray-700"
+                className="text-xs text-gray-300 pr-3 border-r-2 border-gray-700"
               >
                 {p}
               </li>
@@ -638,22 +648,23 @@ function POADetailsSection({ data }: { data: POADetails }) {
         </div>
       )}
       {data.poa_text_en && (
-        <CollapsibleText label="POA Text (EN)" text={data.poa_text_en} />
+        <CollapsibleText label={t("resultsDrawer.poaTextEn")} text={data.poa_text_en} />
       )}
       {data.poa_text_ar && (
-        <CollapsibleText label="POA Text (AR)" text={data.poa_text_ar} dir="rtl" />
+        <CollapsibleText label={t("resultsDrawer.poaTextAr")} text={data.poa_text_ar} dir="rtl" />
       )}
     </Section>
   );
 }
 
 function EvidenceSummarySection({ data }: { data: EvidenceItem[] }) {
+  const { t } = useLocale();
   return (
     <Section
-      title="Evidence Summary"
+      title={t("resultsDrawer.evidenceSummary")}
       badge={
         <span className="text-[10px] text-gray-600 font-normal">
-          {data.length} {data.length === 1 ? "document" : "documents"}
+          {data.length} {data.length === 1 ? t("resultsDrawer.document") : t("resultsDrawer.documentsPlural")}
         </span>
       }
     >
@@ -662,7 +673,7 @@ function EvidenceSummarySection({ data }: { data: EvidenceItem[] }) {
           <div key={i} className="bg-gray-900/50 rounded p-3">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-medium text-gray-200">
-                {item.document_type ?? `Document ${i + 1}`}
+                {item.document_type ?? `${t("resultsDrawer.document")} ${i + 1}`}
               </span>
               {item.confidence != null && (
                 <ConfidenceBadge value={item.confidence} />
@@ -686,23 +697,24 @@ function EvidenceSummarySection({ data }: { data: EvidenceItem[] }) {
 }
 
 function FactComparisonsSection({ data }: { data: FactComparison[] }) {
+  const { t } = useLocale();
   return (
     <Section
-      title="Fact Comparisons"
+      title={t("resultsDrawer.factComparisons")}
       badge={
         <span className="text-[10px] text-gray-600 font-normal">
-          {data.length} {data.length === 1 ? "comparison" : "comparisons"}
+          {data.length} {data.length === 1 ? t("resultsDrawer.comparison") : t("resultsDrawer.comparisons")}
         </span>
       }
     >
       <table className="w-full text-xs">
         <thead>
           <tr className="text-gray-500 border-b border-gray-700/50">
-            <th className="text-left py-1.5 pr-3 font-medium">Fact</th>
-            <th className="text-left py-1.5 pr-3 font-medium">Source 1</th>
-            <th className="text-left py-1.5 pr-3 font-medium">Source 2</th>
-            <th className="text-center py-1.5 pr-3 font-medium w-16">Match</th>
-            <th className="text-left py-1.5 font-medium">Notes</th>
+            <th className="text-right py-1.5 pr-3 font-medium">{t("resultsDrawer.factType")}</th>
+            <th className="text-right py-1.5 pr-3 font-medium">{t("resultsDrawer.source1")}</th>
+            <th className="text-right py-1.5 pr-3 font-medium">{t("resultsDrawer.source2")}</th>
+            <th className="text-center py-1.5 pr-3 font-medium w-16">{t("resultsDrawer.match")}</th>
+            <th className="text-right py-1.5 font-medium">{t("resultsDrawer.notes")}</th>
           </tr>
         </thead>
         <tbody>
@@ -729,9 +741,9 @@ function FactComparisonsSection({ data }: { data: FactComparison[] }) {
               </td>
               <td className="py-2 pr-3 text-center">
                 {fc.match === true ? (
-                  <span className="text-green-400 font-semibold">Yes</span>
+                  <span className="text-green-400 font-semibold">{t("common.yes")}</span>
                 ) : fc.match === false ? (
-                  <span className="text-red-400 font-semibold">No</span>
+                  <span className="text-red-400 font-semibold">{t("common.no")}</span>
                 ) : (
                   <span className="text-gray-600">\u2014</span>
                 )}
@@ -746,6 +758,7 @@ function FactComparisonsSection({ data }: { data: FactComparison[] }) {
 }
 
 function OpenQuestionsSection({ data }: { data: OpenQuestion[] }) {
+  const { t } = useLocale();
   const priorities = ["critical", "important", "supplementary"];
   const grouped = new Map<string, OpenQuestion[]>();
   for (const q of data) {
@@ -768,10 +781,10 @@ function OpenQuestionsSection({ data }: { data: OpenQuestion[] }) {
 
   return (
     <Section
-      title="Open Questions"
+      title={t("resultsDrawer.openQuestions")}
       badge={
         <span className="text-[10px] text-gray-600 font-normal">
-          {data.length} {data.length === 1 ? "question" : "questions"}
+          {data.length} {data.length === 1 ? t("resultsDrawer.question") : t("resultsDrawer.questions")}
         </span>
       }
     >
@@ -828,12 +841,13 @@ function OpenQuestionsSection({ data }: { data: OpenQuestion[] }) {
 }
 
 function MissingInfoSection({ data }: { data: string[] }) {
+  const { t } = useLocale();
   return (
     <Section
-      title="Missing Information"
+      title={t("resultsDrawer.missingInfo")}
       badge={
         <span className="text-[10px] text-gray-600 font-normal">
-          {data.length} {data.length === 1 ? "item" : "items"}
+          {data.length} {data.length === 1 ? t("resultsDrawer.item") : t("resultsDrawer.items")}
         </span>
       }
     >
@@ -854,6 +868,7 @@ function MissingInfoSection({ data }: { data: string[] }) {
 // =====================================================================
 
 function DecisionBanner({ opinion }: { opinion: LegalOpinion }) {
+  const { t } = useLocale();
   const finding = opinion.overall_finding ?? "UNKNOWN";
   const bucket = opinion.decision_bucket ?? "unknown";
   const confidence = opinion.confidence_score;
@@ -867,11 +882,19 @@ function DecisionBanner({ opinion }: { opinion: LegalOpinion }) {
     INCONCLUSIVE: "bg-gray-800 border-gray-600 text-gray-300",
   };
 
+  const findingLabels: Record<string, string> = {
+    VALID: t("resultsDrawer.valid"),
+    VALID_WITH_CONDITIONS: t("resultsDrawer.validWithConditions"),
+    INVALID: t("resultsDrawer.invalid"),
+    REQUIRES_REVIEW: t("resultsDrawer.requiresReview"),
+    INCONCLUSIVE: t("resultsDrawer.inconclusive"),
+  };
+
   const bucketLabels: Record<string, string> = {
-    valid: "Valid",
-    valid_with_remediations: "Valid with Remediations",
-    invalid: "Invalid",
-    needs_review: "Needs Review",
+    valid: t("resultsDrawer.validBucket"),
+    valid_with_remediations: t("resultsDrawer.validWithRemediations"),
+    invalid: t("resultsDrawer.invalidBucket"),
+    needs_review: t("resultsDrawer.needsReview"),
   };
 
   const bannerClass = findingColors[finding] ?? findingColors.INCONCLUSIVE;
@@ -881,21 +904,21 @@ function DecisionBanner({ opinion }: { opinion: LegalOpinion }) {
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-3">
-            <span className="text-lg font-bold">{finding.replace(/_/g, " ")}</span>
+            <span className="text-lg font-bold">{findingLabels[finding] ?? finding.replace(/_/g, " ")}</span>
             <span className="text-xs px-2 py-0.5 rounded bg-black/20">
               {bucketLabels[bucket] ?? bucket}
             </span>
           </div>
           {opinion.generated_at && (
             <p className="text-[10px] mt-1 opacity-70">
-              Generated {new Date(opinion.generated_at).toLocaleString()}
+              {t("resultsDrawer.generatedAt")} {new Date(opinion.generated_at).toLocaleString()}
             </p>
           )}
         </div>
         {confidence != null && (
           <div className="text-right">
             <p className="text-2xl font-bold">{(confidence * 100).toFixed(0)}%</p>
-            {level && <p className="text-[10px] uppercase tracking-wider opacity-70">{level} confidence</p>}
+            {level && <p className="text-[10px] uppercase tracking-wider opacity-70">{t("resultsDrawer.confidenceLevel")} {level}</p>}
           </div>
         )}
       </div>
@@ -904,18 +927,23 @@ function DecisionBanner({ opinion }: { opinion: LegalOpinion }) {
 }
 
 function OpinionSummarySection({ opinion }: { opinion: LegalOpinion }) {
+  const { t } = useLocale();
   const en = opinion.opinion_summary_en;
   const ar = opinion.opinion_summary_ar;
   if (!en && !ar) return null;
 
   return (
-    <Section title="Opinion Summary">
-      {en && <p className="text-sm text-gray-300 leading-relaxed">{en}</p>}
+    <Section title={t("resultsDrawer.opinionSummary")}>
       {ar && (
-        <div className="mt-3">
-          <span className="text-[10px] text-gray-500 uppercase tracking-wider">Arabic Summary</span>
-          <p dir="rtl" className="text-sm text-gray-300 leading-relaxed mt-1">
-            {ar}
+        <p dir="rtl" className="text-sm text-gray-300 leading-relaxed">
+          {ar}
+        </p>
+      )}
+      {en && (
+        <div className={ar ? "mt-3" : ""}>
+          {ar && <span className="text-[10px] text-gray-500 uppercase tracking-wider">{t("resultsDrawer.englishSummary")}</span>}
+          <p className={`text-sm text-gray-300 leading-relaxed ${ar ? "mt-1" : ""}`}>
+            {en}
           </p>
         </div>
       )}
@@ -924,6 +952,7 @@ function OpinionSummarySection({ opinion }: { opinion: LegalOpinion }) {
 }
 
 function IssuesAnalyzedSection({ opinion }: { opinion: LegalOpinion }) {
+  const { t } = useLocale();
   // Issues can be in different places depending on the output structure
   const issues =
     opinion.detailed_analysis?.issue_by_issue_analysis ??
@@ -942,10 +971,10 @@ function IssuesAnalyzedSection({ opinion }: { opinion: LegalOpinion }) {
 
   return (
     <Section
-      title="Issues Analyzed"
+      title={t("resultsDrawer.issuesAnalyzed")}
       badge={
         <span className="text-[10px] text-gray-600 font-normal">
-          {issues.length} {issues.length === 1 ? "issue" : "issues"}
+          {issues.length} {issues.length === 1 ? t("resultsDrawer.issue") : t("resultsDrawer.issues")}
         </span>
       }
     >
@@ -967,7 +996,7 @@ function IssuesAnalyzedSection({ opinion }: { opinion: LegalOpinion }) {
                       </span>
                     )}
                     <span className="text-xs font-medium text-gray-200">
-                      {issue.issue_title ?? issue.category ?? `Issue ${i + 1}`}
+                      {issue.issue_title ?? issue.category ?? `${t("resultsDrawer.issue")} ${i + 1}`}
                     </span>
                   </div>
                   {issue.category && issue.issue_title && (
@@ -1000,13 +1029,13 @@ function IssuesAnalyzedSection({ opinion }: { opinion: LegalOpinion }) {
               {articles.length > 0 && (
                 <div className="mt-1">
                   <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">
-                    Supporting Articles ({articles.length})
+                    {t("resultsDrawer.supportingArticles")} ({articles.length})
                   </span>
                   <div className="mt-1 space-y-1">
                     {articles.map((art, j) => (
                       <div key={j} className="text-[11px] text-gray-400 pl-2 border-l border-gray-700">
                         <span className="font-medium text-gray-300">
-                          Art. {art.article_number}
+                          {t("resultsDrawer.article")} {art.article_number}
                         </span>
                         {" \u2014 "}
                         {(art.article_text || art.application_to_facts || art.text || "").slice(0, 200)}
@@ -1021,7 +1050,7 @@ function IssuesAnalyzedSection({ opinion }: { opinion: LegalOpinion }) {
               {issue.concerns && issue.concerns.length > 0 && (
                 <div className="mt-1">
                   <span className="text-[10px] text-yellow-500 font-semibold uppercase tracking-wider">
-                    Concerns
+                    {t("resultsDrawer.concerns")}
                   </span>
                   <ul className="mt-0.5 space-y-0.5">
                     {issue.concerns.map((c, j) => (
@@ -1069,15 +1098,16 @@ function StringListSection({
 }
 
 function CitationsSection({ opinion }: { opinion: LegalOpinion }) {
+  const { t } = useLocale();
   const citations = opinion.all_citations ?? opinion.citations ?? [];
   if (citations.length === 0) return null;
 
   return (
     <Section
-      title="Legal Citations"
+      title={t("resultsDrawer.citations")}
       badge={
         <span className="text-[10px] text-gray-600 font-normal">
-          {citations.length} {citations.length === 1 ? "article" : "articles"}
+          {citations.length} {citations.length === 1 ? t("resultsDrawer.article") : t("resultsDrawer.articlesCount")}
         </span>
       }
     >
@@ -1087,7 +1117,7 @@ function CitationsSection({ opinion }: { opinion: LegalOpinion }) {
             <div className="flex items-center justify-between mb-1">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold text-gray-200">
-                  Article {c.article_number}
+                  {t("resultsDrawer.article")} {c.article_number}
                 </span>
                 {c.law_name && (
                   <span className="text-[10px] text-gray-500 italic">{c.law_name}</span>
@@ -1095,16 +1125,19 @@ function CitationsSection({ opinion }: { opinion: LegalOpinion }) {
               </div>
               {c.similarity_score != null && (
                 <span className="text-[10px] text-gray-500">
-                  Similarity: {(c.similarity_score * 100).toFixed(0)}%
+                  {t("resultsDrawer.similarity")}: {(c.similarity_score * 100).toFixed(0)}%
                 </span>
               )}
             </div>
-            {(c.text_en || c.quoted_text) && (
-              <p className="text-[11px] text-gray-400 leading-relaxed">
-                {(c.text_en || c.quoted_text || "").slice(0, 300)}
-                {(c.text_en || c.quoted_text || "").length > 300 ? "..." : ""}
-              </p>
-            )}
+            {(c.quoted_text || c.text_ar || c.text_arabic || c.text_en || c.text_english) && (() => {
+              const displayText = c.quoted_text || c.text_ar || c.text_arabic || c.text_en || c.text_english || "";
+              return (
+                <p className="text-[11px] text-gray-400 leading-relaxed">
+                  {displayText.slice(0, 300)}
+                  {displayText.length > 300 ? "..." : ""}
+                </p>
+              );
+            })()}
             {c.relevance && (
               <p className="text-[10px] text-gray-500 mt-1 italic">{c.relevance}</p>
             )}
@@ -1124,26 +1157,27 @@ function RetrievalMetricsSection({
   grounding?: number;
   coverage?: number;
 }) {
+  const { t } = useLocale();
   return (
-    <Section title="Verification Metrics">
+    <Section title={t("resultsDrawer.verificationMetrics")}>
       <div className="grid grid-cols-2 gap-4">
         {/* Scores */}
         <div className="space-y-2">
           {grounding != null && (
             <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-500">Grounding Score</span>
+              <span className="text-xs text-gray-500">{t("resultsDrawer.groundingScore")}</span>
               <ConfidenceBadge value={grounding} />
             </div>
           )}
           {coverage != null && (
             <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-500">Retrieval Coverage</span>
+              <span className="text-xs text-gray-500">{t("resultsDrawer.retrievalCoverage")}</span>
               <ConfidenceBadge value={coverage} />
             </div>
           )}
           {metrics.coverage_score != null && coverage == null && (
             <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-500">Coverage Score</span>
+              <span className="text-xs text-gray-500">{t("resultsDrawer.coverageScore")}</span>
               <ConfidenceBadge value={metrics.coverage_score} />
             </div>
           )}
@@ -1153,43 +1187,43 @@ function RetrievalMetricsSection({
         <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
           {metrics.total_iterations != null && (
             <div className="flex justify-between">
-              <span className="text-gray-500">Iterations</span>
+              <span className="text-gray-500">{t("resultsDrawer.iterations")}</span>
               <span className="text-gray-300 font-mono">{metrics.total_iterations}</span>
             </div>
           )}
           {metrics.total_articles != null && (
             <div className="flex justify-between">
-              <span className="text-gray-500">Articles</span>
+              <span className="text-gray-500">{t("resultsDrawer.articles")}</span>
               <span className="text-gray-300 font-mono">{metrics.total_articles}</span>
             </div>
           )}
           {metrics.stop_reason && (
             <div className="flex justify-between col-span-2">
-              <span className="text-gray-500">Stop Reason</span>
+              <span className="text-gray-500">{t("resultsDrawer.stopReason")}</span>
               <span className="text-gray-300">{metrics.stop_reason}</span>
             </div>
           )}
           {metrics.avg_similarity != null && (
             <div className="flex justify-between">
-              <span className="text-gray-500">Avg Similarity</span>
+              <span className="text-gray-500">{t("resultsDrawer.avgSimilarity")}</span>
               <span className="text-gray-300 font-mono">{(metrics.avg_similarity * 100).toFixed(0)}%</span>
             </div>
           )}
           {metrics.top_3_similarity != null && (
             <div className="flex justify-between">
-              <span className="text-gray-500">Top-3 Similarity</span>
+              <span className="text-gray-500">{t("resultsDrawer.top3Similarity")}</span>
               <span className="text-gray-300 font-mono">{(metrics.top_3_similarity * 100).toFixed(0)}%</span>
             </div>
           )}
           {metrics.total_latency_ms != null && (
             <div className="flex justify-between">
-              <span className="text-gray-500">Latency</span>
+              <span className="text-gray-500">{t("resultsDrawer.responseTime")}</span>
               <span className="text-gray-300 font-mono">{(metrics.total_latency_ms / 1000).toFixed(1)}s</span>
             </div>
           )}
           {metrics.estimated_cost_usd != null && (
             <div className="flex justify-between">
-              <span className="text-gray-500">Est. Cost</span>
+              <span className="text-gray-500">{t("resultsDrawer.estimatedCost")}</span>
               <span className="text-gray-300 font-mono">${metrics.estimated_cost_usd.toFixed(4)}</span>
             </div>
           )}

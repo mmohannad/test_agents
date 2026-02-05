@@ -59,119 +59,253 @@ def get_llm_client() -> CondenserLLMClient:
 acp = FastACP.create(acp_type="sync")
 
 
-SYSTEM_PROMPT = """You are a legal analyst responsible for extracting and organizing facts from POA (Power of Attorney) and other notarization applications.
+SYSTEM_PROMPT_AR = """أنت محلل قانوني مسؤول عن استخراج وتنظيم الحقائق من طلبات التوكيلات والتصديقات.
 
-Your task is to:
-1. Extract ALL relevant facts from the provided data
-2. Identify ALL parties and their roles, capacities, and attributes
-3. Extract ALL powers/authorities being requested or granted
-4. Identify ANY evidence that establishes or limits a party's capacity
-5. Note ANY discrepancies between claimed facts and evidenced facts
-6. Generate legal questions that need research based on the facts
+مهمتك:
+1. استخراج جميع الحقائق ذات الصلة من البيانات المقدمة
+2. تحديد جميع الأطراف وأدوارهم وصفاتهم وخصائصهم
+3. استخراج جميع الصلاحيات المطلوب منحها أو الممنوحة
+4. تحديد أي دليل يثبت أو يحد من صفة أي طرف
+5. ملاحظة أي تناقضات بين الحقائق المذكورة والحقائق الموثقة
+6. إنشاء أسئلة قانونية تحتاج للبحث بناءً على الحقائق
 
-IMPORTANT PRINCIPLES:
-- Be THOROUGH - extract every fact that could be legally relevant
-- Be OBJECTIVE - report facts as found, do not make legal conclusions
-- Be PRECISE - quote exact text from documents where possible
-- COMPARE sources - note where different documents say different things
-- IDENTIFY GAPS - note what information is missing
+مبادئ مهمة:
+- كن شاملاً - استخرج كل حقيقة قد تكون ذات صلة قانونية
+- كن موضوعياً - أبلغ عن الحقائق كما وجدتها، لا تصدر استنتاجات قانونية
+- كن دقيقاً - اقتبس النص الحرفي من المستندات حيثما أمكن
+- قارن المصادر - لاحظ عندما تقول مستندات مختلفة أشياء مختلفة
+- حدد الثغرات - لاحظ المعلومات الناقصة
+
+متطلبات اللغة الصارمة:
+- جميع القيم النصية في مخرجات JSON يجب أن تكون بالعربية بالكامل.
+- لا تستخدم أي كلمات إنجليزية في القيم النصية إطلاقاً.
+- مفاتيح JSON تبقى بالإنجليزية (مثل "case_summary", "parties").
+- الأدوار: استخدم "موكّل" بدلاً من "grantor"، و"وكيل" بدلاً من "agent"، و"بائع" بدلاً من "seller"، و"مشتري" بدلاً من "buyer".
+- أسماء الأشخاص: احتفظ بالاسم العربي في name_ar والاسم الإنجليزي في name_en.
+
+أنت تُعدّ حزمة حقائق شاملة لوكيل بحث قانوني سيحدد الصلاحية.
+الوكيل القانوني يحتاج معلومات كاملة لإصدار قرارات دقيقة."""
+
+
+SYSTEM_PROMPT_EN = """You are a legal analyst responsible for extracting and organizing facts from Power of Attorney and notarization requests.
+
+Your task:
+1. Extract all relevant facts from the provided data
+2. Identify all parties, their roles, capacities, and characteristics
+3. Extract all powers requested to be granted or already granted
+4. Identify any evidence that proves or limits any party's capacity
+5. Note any contradictions between stated facts and documented facts
+6. Create legal questions that need research based on the facts
+
+Key principles:
+- Be comprehensive - extract every legally relevant fact
+- Be objective - report facts as found, do not issue legal conclusions
+- Be precise - quote literal text from documents where possible
+- Compare sources - note when different documents say different things
+- Identify gaps - note missing information
+
+Language requirements:
+- All text values in JSON output must be in English.
+- JSON keys remain in English (e.g., "case_summary", "parties").
+- Roles: use "Grantor" instead of "موكّل", "Agent" instead of "وكيل", "Seller" instead of "بائع", "Buyer" instead of "مشتري".
+- Person names: keep the Arabic name in name_ar and the English name in name_en.
 
 You are preparing a comprehensive fact package for a legal research agent that will determine validity.
-The legal agent needs COMPLETE information to make accurate determinations."""
+The legal agent needs complete information to make accurate decisions."""
 
 
-ANALYSIS_PROMPT_TEMPLATE = """Extract and organize ALL facts from the following application data into a comprehensive Legal Brief.
+ANALYSIS_PROMPT_TEMPLATE_AR = """استخرج ونظّم جميع الحقائق من بيانات الطلب التالية في موجز قانوني شامل.
 
-## APPLICATION DATA:
+## بيانات الطلب:
 {case_data}
 
-## DOCUMENT EXTRACTIONS:
+## استخراجات المستندات:
 {document_extractions}
 
-## ADDITIONAL CONTEXT:
+## سياق إضافي:
 {additional_context}
 
 ---
 
-Create a comprehensive Legal Brief by extracting ALL facts. Use this structure:
+أنشئ موجزاً قانونياً شاملاً باستخراج جميع الحقائق. استخدم هذا الهيكل:
+
+⚠️ تنبيه صارم: جميع القيم النصية يجب أن تكون بالعربية فقط. لا تستخدم أي كلمات إنجليزية في القيم. مفاتيح JSON فقط تبقى بالإنجليزية.
 
 {{
     "case_summary": {{
-        "application_number": "...",
-        "transaction_type": "...",
-        "transaction_description": "..."
+        "application_number": "رقم الطلب من البيانات",
+        "transaction_type": "نوع المعاملة بالعربية مثل: توكيل خاص لشركة",
+        "transaction_description": "وصف المعاملة بالعربية"
     }},
     "parties": [
         {{
-            "role": "grantor|agent|seller|buyer|etc",
-            "name_ar": "...",
-            "name_en": "...",
-            "qid": "...",
-            "nationality": "...",
-            "capacity_claimed": "What capacity they claim to act in",
-            "capacity_evidence": "What documents/records show about their capacity",
+            "role": "موكّل أو وكيل أو بائع أو مشتري",
+            "name_ar": "الاسم بالعربية",
+            "name_en": "الاسم بالإنجليزية",
+            "qid": "رقم الهوية",
+            "nationality": "الجنسية بالعربية مثل: قطري، كندي",
+            "capacity_claimed": "الصفة التي يدّعيها بالعربية مثل: مفوض بالتوقيع في السجل التجاري",
+            "capacity_evidence": "ما تُظهره المستندات عن صفته بالعربية مثل: حسب السجل التجاري رقم 3333، مدير في شركة كذا",
             "additional_attributes": {{}}
         }}
     ],
     "entity_information": {{
-        "company_name_ar": "...",
-        "company_name_en": "...",
-        "registration_number": "...",
-        "entity_type": "...",
+        "company_name_ar": "اسم الشركة بالعربية",
+        "company_name_en": "اسم الشركة بالإنجليزية",
+        "registration_number": "رقم السجل",
+        "entity_type": "نوع الكيان بالعربية مثل: شركة ذات مسؤولية محدودة",
         "registered_authorities": [
             {{
-                "person_name": "...",
-                "position": "...",
-                "authority_scope": "exact text from CR",
-                "id_number": "..."
+                "person_name": "اسم الشخص",
+                "position": "المنصب بالعربية مثل: مدير",
+                "authority_scope": "نطاق الصلاحية بالعربية كما هو مذكور في السجل التجاري",
+                "id_number": "رقم الهوية"
             }}
         ]
     }},
     "poa_details": {{
-        "poa_type": "general|special",
-        "poa_text_ar": "full text if available",
-        "poa_text_en": "full text if available",
-        "powers_granted": ["list each power separately"],
-        "duration": "...",
-        "substitution_allowed": true|false|unknown
+        "poa_type": "عام أو خاص",
+        "poa_text_ar": "النص الكامل بالعربية إذا توفر",
+        "poa_text_en": "النص الكامل بالإنجليزية إذا توفر",
+        "powers_granted": ["كل صلاحية على حدة بالعربية"],
+        "duration": "المدة بالعربية مثل: سنة واحدة أو غير محدد",
+        "substitution_allowed": true
     }},
     "evidence_summary": [
         {{
-            "document_type": "...",
-            "key_facts_extracted": ["..."],
-            "confidence": 0.0-1.0
+            "document_type": "نوع المستند بالعربية مثل: سجل تجاري، هوية شخصية، توكيل",
+            "key_facts_extracted": ["الحقائق المستخرجة بالعربية"],
+            "confidence": 0.95
         }}
     ],
     "fact_comparisons": [
         {{
-            "fact_type": "e.g., grantor_authority",
-            "source_1": {{"source": "POA text", "value": "..."}},
-            "source_2": {{"source": "CR extract", "value": "..."}},
-            "match": true|false,
-            "notes": "..."
+            "fact_type": "وصف نوع الحقيقة بالعربية مثل: صلاحيات الموكّل",
+            "source_1": {{"source": "نص التوكيل", "value": "القيمة من المصدر الأول بالعربية"}},
+            "source_2": {{"source": "مستخرج السجل التجاري", "value": "القيمة من المصدر الثاني بالعربية"}},
+            "match": true,
+            "notes": "ملاحظات بالعربية"
         }}
     ],
     "open_questions": [
         {{
             "question_id": "Q1",
-            "category": "capacity|authority|scope|formalities|validity|compliance",
-            "question": "Specific legal question that needs research",
-            "relevant_facts": ["facts that prompted this question"],
-            "priority": "critical|important|supplementary"
+            "category": "الصفة أو الصلاحية أو النطاق أو الشكليات أو الصلاحية أو الامتثال",
+            "question": "السؤال القانوني المحدد بالعربية",
+            "relevant_facts": ["الحقائق ذات الصلة بالعربية"],
+            "priority": "حرج أو مهم أو تكميلي"
         }}
     ],
-    "missing_information": ["List any information that would be relevant but is not available"],
-    "extraction_confidence": 0.0-1.0
+    "missing_information": ["المعلومات الناقصة بالعربية"],
+    "extraction_confidence": 0.95
 }}
 
-INSTRUCTIONS:
-1. Extract EVERY fact - names, dates, numbers, authorities, powers
-2. Quote exact text from documents where relevant
-3. Compare what different sources say about the same fact
-4. Generate questions for any legal issues that need research
-5. Note any missing information that would be relevant
+تعليمات:
+1. استخرج كل حقيقة - الأسماء، التواريخ، الأرقام، الصلاحيات
+2. اقتبس النص الحرفي من المستندات حيثما كان ذلك مناسباً
+3. قارن ما تقوله المصادر المختلفة عن نفس الحقيقة
+4. أنشئ أسئلة لأي قضايا قانونية تحتاج للبحث
+5. لاحظ أي معلومات ناقصة
+6. ⚠️ جميع القيم النصية يجب أن تكون بالعربية فقط. لا تكتب أي كلمة إنجليزية في القيم.
 
-Return ONLY the JSON object."""
+أعد فقط كائن JSON."""
+
+
+ANALYSIS_PROMPT_TEMPLATE_EN = """Extract and organize all facts from the following application data into a comprehensive Legal Brief.
+
+## Application Data:
+{case_data}
+
+## Document Extractions:
+{document_extractions}
+
+## Additional Context:
+{additional_context}
+
+---
+
+Create a comprehensive Legal Brief by extracting all facts. Use this structure:
+
+⚠️ Strict requirement: All text values must be in English only. Do not use Arabic words in values. JSON keys remain in English.
+
+{{
+    "case_summary": {{
+        "application_number": "Application number from data",
+        "transaction_type": "Transaction type e.g.: Special POA for Company",
+        "transaction_description": "Transaction description in English"
+    }},
+    "parties": [
+        {{
+            "role": "Grantor or Agent or Seller or Buyer",
+            "name_ar": "Arabic name",
+            "name_en": "English name",
+            "qid": "ID number",
+            "nationality": "Nationality e.g.: Qatari, Canadian",
+            "capacity_claimed": "Claimed capacity e.g.: Authorized Signatory in Commercial Registration",
+            "capacity_evidence": "What documents show about their capacity e.g.: Per CR #3333, manager of company X",
+            "additional_attributes": {{}}
+        }}
+    ],
+    "entity_information": {{
+        "company_name_ar": "Company name in Arabic",
+        "company_name_en": "Company name in English",
+        "registration_number": "Registration number",
+        "entity_type": "Entity type e.g.: Limited Liability Company",
+        "registered_authorities": [
+            {{
+                "person_name": "Person name",
+                "position": "Position e.g.: Manager",
+                "authority_scope": "Authority scope as stated in the commercial registration",
+                "id_number": "ID number"
+            }}
+        ]
+    }},
+    "poa_details": {{
+        "poa_type": "General or Special",
+        "poa_text_ar": "Full Arabic text if available",
+        "poa_text_en": "Full English text if available",
+        "powers_granted": ["Each power separately in English"],
+        "duration": "Duration e.g.: one year or indefinite",
+        "substitution_allowed": true
+    }},
+    "evidence_summary": [
+        {{
+            "document_type": "Document type e.g.: Commercial Registration, Personal ID, Power of Attorney",
+            "key_facts_extracted": ["Extracted facts in English"],
+            "confidence": 0.95
+        }}
+    ],
+    "fact_comparisons": [
+        {{
+            "fact_type": "Fact type description e.g.: Grantor's Authority",
+            "source_1": {{"source": "POA text", "value": "Value from first source in English"}},
+            "source_2": {{"source": "CR Extract", "value": "Value from second source in English"}},
+            "match": true,
+            "notes": "Notes in English"
+        }}
+    ],
+    "open_questions": [
+        {{
+            "question_id": "Q1",
+            "category": "capacity or authority or scope or formalities or validity or compliance",
+            "question": "Specific legal question in English",
+            "relevant_facts": ["Relevant facts in English"],
+            "priority": "critical or important or supplementary"
+        }}
+    ],
+    "missing_information": ["Missing information in English"],
+    "extraction_confidence": 0.95
+}}
+
+Instructions:
+1. Extract every fact - names, dates, numbers, powers
+2. Quote literal text from documents where appropriate
+3. Compare what different sources say about the same fact
+4. Create questions for any legal issues that need research
+5. Note any missing information
+6. ⚠️ All text values must be in English only. Do not write any Arabic words in values.
+
+Return ONLY a JSON object."""
 
 
 @acp.on_message_send
@@ -242,12 +376,16 @@ async def handle_message_send(
 
             document_extractions = doc_extractions
             additional_context = input_data.get("additional_context", {})
+            # Extract locale for prompt selection
+            locale = input_data.get("locale", "ar")
 
         else:
             # Direct input
             case_data = input_data.get("case_data", {})
             document_extractions = input_data.get("document_extractions", [])
             additional_context = input_data.get("additional_context", {})
+            # Extract locale for prompt selection
+            locale = input_data.get("locale", "ar")
 
         if not case_data:
             return TextContent(
@@ -255,19 +393,23 @@ async def handle_message_send(
                 content="No case data available. Please provide application_id or case_data."
             )
 
+        # Select prompts based on locale
+        system_prompt = SYSTEM_PROMPT_EN if locale == "en" else SYSTEM_PROMPT_AR
+        analysis_template = ANALYSIS_PROMPT_TEMPLATE_EN if locale == "en" else ANALYSIS_PROMPT_TEMPLATE_AR
+
         # Build the analysis prompt
-        prompt = ANALYSIS_PROMPT_TEMPLATE.format(
+        prompt = analysis_template.format(
             case_data=json.dumps(case_data, ensure_ascii=False, indent=2, default=str),
             document_extractions=json.dumps(document_extractions, ensure_ascii=False, indent=2, default=str) if document_extractions else "No document extractions available",
             additional_context=json.dumps(additional_context, ensure_ascii=False, indent=2, default=str) if additional_context else "None"
         )
 
-        logger.info("Generating Legal Brief with LLM...")
+        logger.info(f"Generating Legal Brief with LLM (locale: {locale})...")
 
         # Call LLM to generate the brief
         response = await llm.chat(
             user_message=prompt,
-            system_message=SYSTEM_PROMPT
+            system_message=system_prompt
         )
 
         # Parse the response as JSON

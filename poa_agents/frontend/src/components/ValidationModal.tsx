@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale } from "@/lib/i18n";
 import type { ValidationFinding } from "@/lib/validation";
 
 interface ValidationModalProps {
@@ -13,6 +14,7 @@ export function ValidationModal({
   onClose,
   onProceedAnyway,
 }: ValidationModalProps) {
+  const { t } = useLocale();
   const errors = findings.filter((f) => f.severity === "error");
   const warnings = findings.filter((f) => f.severity === "warning");
   const hasErrors = errors.length > 0;
@@ -31,10 +33,10 @@ export function ValidationModal({
         <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-800">
           <div className={`h-3 w-3 rounded-full ${hasErrors ? "bg-red-500" : "bg-yellow-500"}`} />
           <h2 className="text-lg font-bold text-gray-100">
-            Tier 1 Check {hasErrors ? "Failed" : "Warnings"}
+            {hasErrors ? t("validation.tier1Failed") : t("validation.tier1Warnings")}
           </h2>
           <span className="ml-auto text-xs text-gray-500">
-            {errors.length} error{errors.length !== 1 ? "s" : ""}, {warnings.length} warning{warnings.length !== 1 ? "s" : ""}
+            {errors.length} {t("validation.errorCount")}، {warnings.length} {t("validation.warningCount")}
           </span>
         </div>
 
@@ -44,7 +46,7 @@ export function ValidationModal({
           {errors.length > 0 && (
             <div>
               <h3 className="text-sm font-semibold text-red-400 uppercase tracking-wider mb-2">
-                Errors
+                {t("validation.errors")}
               </h3>
               <div className="space-y-2">
                 {errors.map((f, i) => (
@@ -58,7 +60,7 @@ export function ValidationModal({
           {warnings.length > 0 && (
             <div>
               <h3 className="text-sm font-semibold text-yellow-400 uppercase tracking-wider mb-2">
-                Warnings
+                {t("validation.warnings")}
               </h3>
               <div className="space-y-2">
                 {warnings.map((f, i) => (
@@ -75,19 +77,19 @@ export function ValidationModal({
             onClick={onClose}
             className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-gray-100 transition-colors"
           >
-            Go Back &amp; Fix
+            {t("validation.goBackAndFix")}
           </button>
           {!hasErrors && (
             <button
               onClick={onProceedAnyway}
               className="px-4 py-2 bg-yellow-600 text-white text-sm font-medium rounded-md hover:bg-yellow-500 transition-colors"
             >
-              Proceed with Warnings
+              {t("validation.proceedWithWarnings")}
             </button>
           )}
           {hasErrors && (
             <span className="text-xs text-red-400 italic">
-              Fix errors before running agents
+              {t("validation.fixErrors")}
             </span>
           )}
         </div>

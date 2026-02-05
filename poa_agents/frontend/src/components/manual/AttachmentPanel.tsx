@@ -4,12 +4,16 @@ import { useState } from "react";
 import {
   ATTACHMENT_TYPES,
   ATTACHMENT_FIELD_SCHEMAS,
+  SIGNATORY_POSITIONS,
+  SIGNATORY_POSITION_LABELS_EN,
+  getOptionLabel,
   type AttachmentTypeCode,
   type ManualAttachment,
   type Signatory,
   createEmptyAttachment,
   createEmptySignatory,
 } from "@/lib/manualDefaults";
+import { useLocale } from "@/lib/i18n";
 
 interface AttachmentPanelProps {
   attachments: ManualAttachment[];
@@ -17,8 +21,6 @@ interface AttachmentPanelProps {
 }
 
 const typeEntries = Object.entries(ATTACHMENT_TYPES) as [AttachmentTypeCode, string][];
-
-const SIGNATORY_POSITIONS = ["director", "partner", "manager", "authorized signatory", "CEO", "chairman"];
 
 function SignatoryCard({
   signatory,
@@ -31,23 +33,24 @@ function SignatoryCard({
   onChange: (s: Signatory) => void;
   onRemove: () => void;
 }) {
+  const { locale, t } = useLocale();
   const update = (key: keyof Signatory, value: string) =>
     onChange({ ...signatory, [key]: value });
 
   return (
     <div className="bg-gray-800/50 border border-gray-700 rounded p-3 space-y-2">
       <div className="flex items-center justify-between mb-1">
-        <span className="text-xs font-medium text-gray-300">Signatory #{index + 1}</span>
+        <span className="text-xs font-medium text-gray-300">{`${t("attachPanel.signatories")} #${index + 1}`}</span>
         <button
           onClick={onRemove}
           className="text-xs text-gray-500 hover:text-red-400 transition-colors"
         >
-          Remove
+          {t("attachPanel.deleteAttachment")}
         </button>
       </div>
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="block text-xs text-gray-400 mb-0.5">Name</label>
+          <label className="block text-xs text-gray-400 mb-0.5">{t("attachPanel.nameEn")}</label>
           <input
             type="text"
             value={signatory.name_en}
@@ -56,7 +59,7 @@ function SignatoryCard({
           />
         </div>
         <div>
-          <label className="block text-xs text-gray-400 mb-0.5">QID</label>
+          <label className="block text-xs text-gray-400 mb-0.5">{t("attachPanel.idNumberField")}</label>
           <input
             type="text"
             value={signatory.identification_number}
@@ -65,7 +68,7 @@ function SignatoryCard({
           />
         </div>
         <div>
-          <label className="block text-xs text-gray-400 mb-0.5">Nationality</label>
+          <label className="block text-xs text-gray-400 mb-0.5">{t("attachPanel.nationalityEn")}</label>
           <input
             type="text"
             value={signatory.nationality_en}
@@ -74,25 +77,25 @@ function SignatoryCard({
           />
         </div>
         <div>
-          <label className="block text-xs text-gray-400 mb-0.5">Percentage</label>
+          <label className="block text-xs text-gray-400 mb-0.5">{t("attachPanel.percentage")}</label>
           <input
             type="text"
             value={signatory.percentage}
             onChange={(e) => update("percentage", e.target.value)}
-            placeholder="e.g. 100"
+            placeholder={locale === "ar" ? "مثال: 100" : "e.g. 100"}
             className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-gray-100 focus:outline-none focus:border-blue-500"
           />
         </div>
         <div className="col-span-2">
-          <label className="block text-xs text-gray-400 mb-0.5">Position</label>
+          <label className="block text-xs text-gray-400 mb-0.5">{t("attachPanel.position")}</label>
           <select
             value={signatory.position}
             onChange={(e) => update("position", e.target.value)}
             className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-gray-100 focus:outline-none focus:border-blue-500"
           >
-            <option value="">— Select —</option>
+            <option value="">{t("appForm.selectPlaceholder")}</option>
             {SIGNATORY_POSITIONS.map((p) => (
-              <option key={p} value={p}>{p}</option>
+              <option key={p} value={p}>{getOptionLabel(p, locale, SIGNATORY_POSITION_LABELS_EN)}</option>
             ))}
           </select>
         </div>
@@ -102,6 +105,7 @@ function SignatoryCard({
 }
 
 export function AttachmentPanel({ attachments, onAttachmentsChange }: AttachmentPanelProps) {
+  const { locale, t } = useLocale();
   const [activeIdx, setActiveIdx] = useState(0);
   const [showTypeSelector, setShowTypeSelector] = useState(false);
 
@@ -176,15 +180,15 @@ export function AttachmentPanel({ attachments, onAttachmentsChange }: Attachment
     <div className="p-5 space-y-4">
       <div className="flex items-center justify-between mb-2">
         <h2 className="text-base font-bold text-gray-100">
-          SAK Attachment Extraction (OCR)
+          {t("attachPanel.title")}
         </h2>
-        <span className="text-xs text-gray-500">Manual Entry</span>
+        <span className="text-xs text-gray-500">{t("attachPanel.subtitle")}</span>
       </div>
 
       {/* Attachment instance tabs */}
       <div className="flex items-center gap-1 border-b border-gray-700 pb-0 overflow-x-auto">
         {attachments.map((att, idx) => {
-          const label = ATTACHMENT_TYPES[att.documentTypeCode] ?? att.documentTypeCode;
+          const label = t(`docTypes.${att.documentTypeCode}`);
           const isActive = idx === activeIdx;
           return (
             <button
@@ -198,10 +202,10 @@ export function AttachmentPanel({ attachments, onAttachmentsChange }: Attachment
             >
               <span>#{idx + 1} {label}</span>
               {att.saved && (
-                <span className="text-green-400 text-[10px]" title="Saved">&#10003;</span>
+                <span className="text-green-400 text-[10px]" title={t("attachPanel.saved")}>&#10003;</span>
               )}
               {!att.saved && Object.values(att.extractedFields).some(v => v !== "") && (
-                <span className="w-1.5 h-1.5 rounded-full bg-yellow-500" title="Unsaved changes" />
+                <span className="w-1.5 h-1.5 rounded-full bg-yellow-500" title={t("attachPanel.unsavedChanges")} />
               )}
               <span
                 onClick={(e) => {
@@ -209,7 +213,7 @@ export function AttachmentPanel({ attachments, onAttachmentsChange }: Attachment
                   removeAttachment(idx);
                 }}
                 className="text-gray-600 hover:text-red-400 ml-1 cursor-pointer"
-                title="Remove attachment"
+                title={t("attachPanel.deleteAttachment")}
               >
                 x
               </span>
@@ -221,14 +225,14 @@ export function AttachmentPanel({ attachments, onAttachmentsChange }: Attachment
           onClick={() => setShowTypeSelector(!showTypeSelector)}
           className="px-3 py-1.5 text-xs text-green-400 hover:text-green-300 hover:bg-gray-800/50 rounded-t transition-colors whitespace-nowrap"
         >
-          + Add Attachment
+          + {t("attachPanel.addAttachment")}
         </button>
       </div>
 
       {/* Type selector dropdown */}
       {showTypeSelector && (
         <div className="bg-gray-800 border border-gray-700 rounded p-2 space-y-1">
-          <p className="text-xs text-gray-400 mb-1">Select attachment type:</p>
+          <p className="text-xs text-gray-400 mb-1">{t("attachPanel.selectType")}</p>
           <div className="grid grid-cols-2 gap-1">
             {typeEntries.map(([code, label]) => (
               <button
@@ -236,7 +240,7 @@ export function AttachmentPanel({ attachments, onAttachmentsChange }: Attachment
                 onClick={() => addAttachment(code)}
                 className="text-left px-2 py-1.5 text-xs text-gray-200 hover:bg-gray-700 rounded transition-colors"
               >
-                {label}
+                {t(`docTypes.${code}`)}
               </button>
             ))}
           </div>
@@ -249,12 +253,12 @@ export function AttachmentPanel({ attachments, onAttachmentsChange }: Attachment
           {/* Extracted fields */}
           <div>
             <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider border-b border-gray-700 pb-1 mb-3">
-              Extracted Fields
+              {t("attachPanel.extractedFields")}
             </h3>
             <div className="grid grid-cols-2 gap-3">
               {ATTACHMENT_FIELD_SCHEMAS[active.documentTypeCode].map((field) => (
                 <div key={field.key}>
-                  <label className="block text-xs text-gray-400 mb-1">{field.label}</label>
+                  <label className="block text-xs text-gray-400 mb-1">{locale === "en" ? field.label_en : field.label}</label>
                   <input
                     type={field.type ?? "text"}
                     value={active.extractedFields[field.key] ?? ""}
@@ -271,17 +275,17 @@ export function AttachmentPanel({ attachments, onAttachmentsChange }: Attachment
             <div>
               <div className="flex items-center justify-between border-b border-gray-700 pb-1 mb-3">
                 <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
-                  Authorized Signatories
+                  {t("attachPanel.signatories")}
                 </h3>
                 <button
                   onClick={addSignatory}
                   className="text-xs text-green-400 hover:text-green-300 transition-colors"
                 >
-                  + Add Signatory
+                  + {t("attachPanel.addSignatory")}
                 </button>
               </div>
               {active.signatories.length === 0 ? (
-                <p className="text-xs text-gray-500 italic">No signatories added yet</p>
+                <p className="text-xs text-gray-500 italic">{t("attachPanel.noSignatories")}</p>
               ) : (
                 <div className="space-y-3">
                   {active.signatories.map((sig, sigIdx) => (
@@ -301,11 +305,11 @@ export function AttachmentPanel({ attachments, onAttachmentsChange }: Attachment
           {/* Raw text fields */}
           <div>
             <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider border-b border-gray-700 pb-1 mb-3">
-              Raw Text
+              {t("attachPanel.rawText")}
             </h3>
             <div className="space-y-3">
               <div>
-                <label className="block text-xs text-gray-400 mb-1">Raw Text (Arabic)</label>
+                <label className="block text-xs text-gray-400 mb-1">{t("attachPanel.rawTextAr")}</label>
                 <textarea
                   value={active.rawTextAr}
                   onChange={(e) => updateRawText("rawTextAr", e.target.value)}
@@ -315,7 +319,7 @@ export function AttachmentPanel({ attachments, onAttachmentsChange }: Attachment
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1">Raw Text (English)</label>
+                <label className="block text-xs text-gray-400 mb-1">{t("attachPanel.rawTextEn")}</label>
                 <textarea
                   value={active.rawTextEn}
                   onChange={(e) => updateRawText("rawTextEn", e.target.value)}
@@ -336,19 +340,19 @@ export function AttachmentPanel({ attachments, onAttachmentsChange }: Attachment
                   : "bg-blue-600 text-white hover:bg-blue-500"
               }`}
             >
-              {active.saved ? "Saved" : "Save Attachment"}
+              {active.saved ? t("attachPanel.saved") : t("attachPanel.saveAttachment")}
             </button>
             {active.saved && (
-              <span className="text-xs text-green-400">Attachment details saved</span>
+              <span className="text-xs text-green-400">{t("attachPanel.savedMessage")}</span>
             )}
             {!active.saved && Object.values(active.extractedFields).some(v => v !== "") && (
-              <span className="text-xs text-yellow-400">Unsaved changes</span>
+              <span className="text-xs text-yellow-400">{t("attachPanel.unsavedChanges")}</span>
             )}
           </div>
         </div>
       ) : (
         <div className="flex items-center justify-center h-40 text-gray-500 text-sm">
-          Click &quot;+ Add Attachment&quot; to create an attachment entry
+          {t("attachPanel.emptyState")}
         </div>
       )}
     </div>

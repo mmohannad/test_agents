@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useLocale } from "@/lib/i18n";
 import { EditableField } from "./EditableField";
 import { JsonViewer } from "./JsonViewer";
 
@@ -12,7 +13,7 @@ interface UnstructuredPanelProps {
   onUpdateExtractedField: (extractionIndex: number, fieldKey: string, value: unknown) => void;
 }
 
-function ConfidenceBadge({ value }: { value: number }) {
+function ConfidenceBadge({ value, t }: { value: number; t: (key: string) => string }) {
   const pct = Math.round(value * 100);
   let color = "text-red-400 bg-red-950";
   if (pct >= 80) color = "text-green-400 bg-green-950";
@@ -20,27 +21,20 @@ function ConfidenceBadge({ value }: { value: number }) {
 
   return (
     <span className={`text-xs px-2 py-0.5 rounded-full ${color}`}>
-      {pct}% confidence
+      {pct}% {t("common.confidence")}
     </span>
   );
 }
 
-const DOC_TYPE_LABELS: Record<string, string> = {
-  PERSONAL_ID: "Personal ID",
-  COMMERCIAL_REGISTRATION: "Commercial Registration",
-  AUTHORIZATION: "Authorization",
-  POWER_OF_ATTORNEY: "Power of Attorney",
-  PASSPORT: "Passport",
-  TRADE_LICENSE: "Trade License",
-  FOUNDATION_CONTRACT: "Foundation Contract",
-  ESTABLISHMENT_RECORD: "Establishment Record",
-};
-
-function formatDocTypeLabel(code: string): string {
-  return DOC_TYPE_LABELS[code] ?? code.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+function getDocTypeLabel(code: string, t: (key: string) => string): string {
+  const key = `docTypes.${code}`;
+  const translated = t(key);
+  // If no translation found (key returned as-is), fall back to formatting the code
+  return translated !== key ? translated : code.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export function UnstructuredPanel({ data, onUpdateExtraction, onUpdateExtractedField }: UnstructuredPanelProps) {
+  const { t } = useLocale();
   const extractions = data.document_extractions;
   const [activeTab, setActiveTab] = useState(0);
 
@@ -48,15 +42,15 @@ export function UnstructuredPanel({ data, onUpdateExtraction, onUpdateExtractedF
     <div className="p-5 space-y-4">
       <div className="flex items-center justify-between mb-2">
         <h2 className="text-base font-bold text-gray-100">
-          Unstructured Context
+          {t("unstructuredPanel.title")}
         </h2>
-        <span className="text-xs text-gray-600">click any field to edit</span>
+        <span className="text-xs text-gray-600">{t("common.clickToEdit")}</span>
       </div>
 
       {extractions.length === 0 ? (
         <div className="bg-gray-900 border border-gray-800 rounded-lg p-6 text-center">
           <p className="text-gray-500 text-sm">
-            No document extractions found for this application
+            {t("unstructuredPanel.noExtractions")}
           </p>
         </div>
       ) : (
@@ -67,7 +61,7 @@ export function UnstructuredPanel({ data, onUpdateExtraction, onUpdateExtractedF
               const rawCode = String(
                 ext.document_type_code || ext.file_name || `Doc ${i + 1}`
               );
-              let docType = formatDocTypeLabel(rawCode);
+              let docType = getDocTypeLabel(rawCode, t);
               // Disambiguate tabs by appending person name from extracted_fields
               const fields = ext.extracted_fields as Record<string, unknown> | null;
               if (fields) {
@@ -113,7 +107,7 @@ export function UnstructuredPanel({ data, onUpdateExtraction, onUpdateExtractedF
                     </span>
                   </span>
                   {confidence !== null && confidence !== undefined && (
-                    <ConfidenceBadge value={confidence} />
+                    <ConfidenceBadge value={confidence} t={t} />
                   )}
                   {ext.extraction_model ? (
                     <span>Model: {String(ext.extraction_model)}</span>
@@ -123,7 +117,7 @@ export function UnstructuredPanel({ data, onUpdateExtraction, onUpdateExtractedF
                 {/* Arabic text — editable */}
                 <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
                   <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
-                    Raw Text (Arabic)
+                    {t("unstructuredPanel.rawTextAr")}
                   </h4>
                   <EditableField
                     label=""
@@ -138,7 +132,7 @@ export function UnstructuredPanel({ data, onUpdateExtraction, onUpdateExtractedF
                 {/* English text — editable */}
                 <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
                   <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
-                    Raw Text (English)
+                    {t("unstructuredPanel.rawTextEn")}
                   </h4>
                   <EditableField
                     label=""
@@ -152,7 +146,7 @@ export function UnstructuredPanel({ data, onUpdateExtraction, onUpdateExtractedF
                 {!rawAr && !rawEn && (
                   <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 text-center">
                     <p className="text-gray-500 text-sm italic">
-                      No raw text available for this document
+                      {t("unstructuredPanel.noRawText")}
                     </p>
                   </div>
                 )}
@@ -162,7 +156,7 @@ export function UnstructuredPanel({ data, onUpdateExtraction, onUpdateExtractedF
                   Object.keys(extractedFields).length > 0 && (
                     <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
                       <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-                        Extracted Fields
+                        {t("unstructuredPanel.extractedFields")}
                       </h4>
                       <ExtractedFieldsView
                         fields={extractedFields}
@@ -172,7 +166,7 @@ export function UnstructuredPanel({ data, onUpdateExtraction, onUpdateExtractedF
                   )}
 
                 {/* Raw JSON for this extraction */}
-                <JsonViewer data={ext} label="Raw Extraction JSON" />
+                <JsonViewer data={ext} label={t("common.rawJson")} />
               </div>
             );
           })}
@@ -180,7 +174,7 @@ export function UnstructuredPanel({ data, onUpdateExtraction, onUpdateExtractedF
       )}
 
       {/* Full payload raw JSON */}
-      <JsonViewer data={data} label="Full Unstructured Payload (Raw JSON)" />
+      <JsonViewer data={data} label={t("unstructuredPanel.fullUnstructuredJson")} />
     </div>
   );
 }

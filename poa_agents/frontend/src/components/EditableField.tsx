@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { useLocale } from "@/lib/i18n";
 
 interface EditableFieldProps {
   label: string;
@@ -19,6 +20,7 @@ export function EditableField({
   multiline = false,
   dir = "ltr",
 }: EditableFieldProps) {
+  const { t } = useLocale();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
@@ -102,14 +104,14 @@ export function EditableField({
         <span className="text-gray-200 break-all" dir={dir}>
           {display}
           <span className="text-gray-700 text-xs ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
-            edit
+            {t("common.edit")}
           </span>
         </span>
       ) : (
         <span className="text-gray-600 italic">
-          (empty — click to add)
+          {t("common.emptyClickToAdd")}
           <span className="text-gray-700 text-xs ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
-            edit
+            {t("common.edit")}
           </span>
         </span>
       )}
