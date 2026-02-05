@@ -106,7 +106,8 @@ async function callAgent(proxyUrl: string, rpcBody: unknown): Promise<string> {
  * It runs the same LLM prompt as CLI mode and returns the legal brief.
  */
 export async function runCondenserAgent(
-  payload: AgentPayload
+  payload: AgentPayload,
+  locale: string = "ar"
 ): Promise<string> {
   const rpcBody = buildRpcBody(
     "condenser-agent",
@@ -114,6 +115,7 @@ export async function runCondenserAgent(
       case_data: payload.case_data,
       document_extractions: payload.document_extractions,
       additional_context: payload.additional_context,
+      locale,
     })
   );
 
@@ -127,11 +129,12 @@ export async function runCondenserAgent(
  * It runs the same decompose -> retrieve -> synthesize pipeline as CLI mode.
  */
 export async function runLegalSearchAgent(
-  legalBrief: Record<string, unknown>
+  legalBrief: Record<string, unknown>,
+  locale: string = "ar"
 ): Promise<string> {
   const rpcBody = buildRpcBody(
     "legal-search-agent",
-    JSON.stringify({ legal_brief: legalBrief })
+    JSON.stringify({ legal_brief: legalBrief, locale })
   );
 
   return callAgent(LEGAL_SEARCH_PROXY, rpcBody);

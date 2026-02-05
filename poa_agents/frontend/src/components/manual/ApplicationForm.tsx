@@ -2,10 +2,15 @@
 
 import {
   APPLICATION_TYPES,
+  APPLICATION_TYPE_LABELS_EN,
   CAPACITY_OPTIONS,
+  CAPACITY_LABELS_EN,
   ID_TYPE_OPTIONS,
+  ID_TYPE_LABELS_EN,
+  getOptionLabel,
   type ManualParty,
 } from "@/lib/manualDefaults";
+import { useLocale } from "@/lib/i18n";
 
 interface ApplicationFormProps {
   applicationType: string;
@@ -32,12 +37,18 @@ function SelectField({
   options,
   onChange,
   dir,
+  placeholder,
+  labelsEn,
+  locale,
 }: {
   label: string;
   value: string;
   options: readonly string[];
   onChange: (v: string) => void;
   dir?: "ltr" | "rtl";
+  placeholder?: string;
+  labelsEn?: Record<string, string>;
+  locale?: "ar" | "en";
 }) {
   return (
     <div>
@@ -48,10 +59,10 @@ function SelectField({
         dir={dir}
         className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-blue-500"
       >
-        <option value="">— Select —</option>
+        <option value="">{placeholder ?? "— اختر —"}</option>
         {options.map((opt) => (
           <option key={opt} value={opt}>
-            {opt}
+            {labelsEn && locale ? getOptionLabel(opt, locale, labelsEn) : opt}
           </option>
         ))}
       </select>
@@ -100,6 +111,7 @@ function PartySection({
   onChange: (p: ManualParty) => void;
   showExtended: boolean;
 }) {
+  const { locale, t } = useLocale();
   const update = (key: keyof ManualParty, value: string) =>
     onChange({ ...party, [key]: value });
 
@@ -107,27 +119,33 @@ function PartySection({
     <div className="space-y-3">
       <SectionHeader title={title} />
       <SelectField
-        label="Capacity"
+        label={t("appForm.capacity")}
         value={party.capacity}
         options={CAPACITY_OPTIONS}
         onChange={(v) => update("capacity", v)}
         dir="rtl"
+        placeholder={t("appForm.selectCapacity")}
+        labelsEn={CAPACITY_LABELS_EN}
+        locale={locale}
       />
       <SelectField
-        label="ID Type"
+        label={t("appForm.idType")}
         value={party.idType}
         options={ID_TYPE_OPTIONS}
         onChange={(v) => update("idType", v)}
         dir="rtl"
+        placeholder={t("appForm.selectIdType")}
+        labelsEn={ID_TYPE_LABELS_EN}
+        locale={locale}
       />
       <div className="grid grid-cols-2 gap-3">
         <TextField
-          label="ID Number"
+          label={t("appForm.idNumber")}
           value={party.idNumber}
           onChange={(v) => update("idNumber", v)}
         />
         <TextField
-          label="Expiration Date"
+          label={t("appForm.expirationDate")}
           value={party.expirationDate}
           onChange={(v) => update("expirationDate", v)}
           type="date"
@@ -135,12 +153,12 @@ function PartySection({
       </div>
       <div className="grid grid-cols-2 gap-3">
         <TextField
-          label="Citizenship"
+          label={t("appForm.citizenship")}
           value={party.citizenship}
           onChange={(v) => update("citizenship", v)}
         />
         <TextField
-          label="Full Name"
+          label={t("appForm.fullName")}
           value={party.fullName}
           onChange={(v) => update("fullName", v)}
         />
@@ -148,13 +166,13 @@ function PartySection({
       {showExtended && (
         <div className="grid grid-cols-2 gap-3">
           <TextField
-            label="Phone Number"
+            label={t("appForm.phone")}
             value={party.phone}
             onChange={(v) => update("phone", v)}
             type="tel"
           />
           <TextField
-            label="Email Address"
+            label={t("appForm.email")}
             value={party.email}
             onChange={(v) => update("email", v)}
             type="email"
@@ -175,29 +193,32 @@ export function ApplicationForm({
   namadhij,
   onNamadhijChange,
 }: ApplicationFormProps) {
+  const { locale, t } = useLocale();
   return (
     <div className="p-5 space-y-6">
       <div className="flex items-center justify-between mb-2">
         <h2 className="text-base font-bold text-gray-100">
-          Application Data
+          {t("appForm.title")}
         </h2>
-        <span className="text-xs text-gray-500">Manual Entry</span>
+        <span className="text-xs text-gray-500">{t("appForm.subtitle")}</span>
       </div>
 
       {/* Application Type */}
       <div>
-        <SectionHeader title="Application Type" />
+        <SectionHeader title={t("appForm.applicationType")} />
         <SelectField
-          label="Application type"
+          label={t("appForm.applicationType")}
           value={applicationType}
           options={APPLICATION_TYPES}
           onChange={onApplicationTypeChange}
+          labelsEn={APPLICATION_TYPE_LABELS_EN}
+          locale={locale}
         />
       </div>
 
       {/* First Party */}
       <PartySection
-        title="First Party"
+        title={t("appForm.firstParty")}
         party={firstParty}
         onChange={onFirstPartyChange}
         showExtended={true}
@@ -205,7 +226,7 @@ export function ApplicationForm({
 
       {/* Second Party */}
       <PartySection
-        title="Second Party"
+        title={t("appForm.secondParty")}
         party={secondParty}
         onChange={onSecondPartyChange}
         showExtended={false}
@@ -213,15 +234,15 @@ export function ApplicationForm({
 
       {/* Namadhij */}
       <div>
-        <SectionHeader title="Namadhij (Permissions to be Granted)" />
+        <SectionHeader title={t("appForm.namadhij")} />
         <label className="block text-xs text-gray-400 mb-1">
-          Namadhij
+          {t("appForm.namadhij")}
         </label>
         <textarea
           value={namadhij}
           onChange={(e) => onNamadhijChange(e.target.value)}
           rows={5}
-          placeholder="Enter the permissions / powers to be granted..."
+          placeholder={t("appForm.namadhijPlaceholder")}
           className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-blue-500 resize-y"
         />
       </div>

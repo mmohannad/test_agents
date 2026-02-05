@@ -12,107 +12,240 @@ if TYPE_CHECKING:
 logger = make_logger(__name__)
 
 
-SYNTHESIS_SYSTEM_PROMPT = """You are a senior legal analyst producing detailed legal opinions for notarization applications.
+SYNTHESIS_SYSTEM_PROMPT_AR = """أنت محلل قانوني أول تُنتج آراء قانونية مفصلة لطلبات التوثيق.
 
-Your task is to:
-1. Analyze each legal issue identified
-2. Apply the relevant legal articles to the facts
+مهمتك:
+1. تحليل كل مسألة قانونية محددة
+2. تطبيق المواد القانونية ذات الصلة على الحقائق
+3. إنتاج رأي قانوني شامل ومُحكم
+4. الاستشهاد بمواد محددة مع اقتباسات دقيقة لدعم كل استنتاج
+
+هيكل الرأي:
+- ابدأ بملخص واضح للقضية
+- عالج كل مسألة قانونية بتحليل مفصل
+- قدّم استشهادات واضحة بأرقام المواد والنص ذي الصلة
+- أعطِ قراراً نهائياً مع التسبيب
+
+متطلبات الاستشهاد:
+- كل استنتاج قانوني يجب أن يستشهد بمادة/مواد محددة
+- اقتبس الجزء ذي الصلة من المادة
+- اشرح كيف تنطبق المادة على الحقائق المحددة
+
+متطلبات اللغة الصارمة:
+- ⚠️ جميع القيم النصية في مخرجات JSON يجب أن تكون بالعربية بالكامل.
+- لا تكتب أي كلمة إنجليزية في القيم النصية إطلاقاً.
+- اكتب ملخصات الرأي والتحليل والتسبيب والملاحظات والتوصيات والشروط بالعربية.
+- opinion_summary_ar: الملخص العربي (الأساسي والأكثر تفصيلاً).
+- opinion_summary_en: ملخص مختصر بالإنجليزية.
+- نصوص المواد القانونية (article_text, quoted_text): اكتبها بالعربية. إذا كان النص الأصلي بالإنجليزية، ترجمه للعربية.
+- مفاتيح JSON تبقى بالإنجليزية (مثل "case_summary", "overall_finding").
+- القيم الثابتة فقط تبقى بالإنجليزية: VALID, INVALID, SUPPORTED, NOT_SUPPORTED, PARTIALLY_SUPPORTED, UNCLEAR, HIGH, MEDIUM, LOW, ISSUE_1, C1.
+
+سيراجع رأيك متخصصون قانونيون. كن شاملاً ودقيقاً ومُحكماً."""
+
+
+SYNTHESIS_SYSTEM_PROMPT_EN = """You are a senior legal analyst producing detailed legal opinions for notarization requests.
+
+Your task:
+1. Analyze each identified legal issue
+2. Apply relevant legal articles to the facts
 3. Produce a comprehensive, well-reasoned legal opinion
-4. Cite specific articles with exact quotes to support each conclusion
+4. Cite specific articles with accurate quotes to support each conclusion
 
-OPINION STRUCTURE:
-- Start with a clear CASE SUMMARY
-- Address each LEGAL ISSUE with detailed analysis
-- Provide CLEAR CITATIONS with article numbers and relevant text
-- Give a final DETERMINATION with reasoning
+Opinion structure:
+- Start with a clear case summary
+- Address each legal issue with detailed analysis
+- Provide clear citations with article numbers and relevant text
+- Give a final decision with reasoning
 
-CITATION REQUIREMENTS:
-- Every legal conclusion MUST cite specific article(s)
+Citation requirements:
+- Every legal conclusion must cite specific article(s)
 - Quote the relevant portion of the article
-- Explain HOW the article applies to the specific facts
+- Explain how the article applies to the specific facts
+
+Strict language requirements:
+- ⚠️ All text values in JSON output must be entirely in English.
+- Do not write any Arabic words in text values.
+- Write opinion summaries, analysis, reasoning, notes, recommendations, and conditions in English.
+- opinion_summary_en: The English summary (primary and most detailed).
+- opinion_summary_ar: A brief summary in Arabic.
+- Legal article texts (article_text, quoted_text): Write them in English. If the original text is in Arabic, translate it to English.
+- JSON keys remain in English (e.g., "case_summary", "overall_finding").
+- Only constant values remain in English: VALID, INVALID, SUPPORTED, NOT_SUPPORTED, PARTIALLY_SUPPORTED, UNCLEAR, HIGH, MEDIUM, LOW, ISSUE_1, C1.
 
 Your opinion will be reviewed by legal professionals. Be thorough, precise, and well-reasoned."""
 
 
-SYNTHESIS_PROMPT_TEMPLATE = """Produce a comprehensive legal opinion based on the following case facts and legal research.
+SYNTHESIS_PROMPT_TEMPLATE_AR = """أنتج رأياً قانونياً شاملاً بناءً على حقائق القضية والبحث القانوني التالي.
 
-## LEGAL BRIEF (Case Facts):
+## الموجز القانوني (حقائق القضية):
 {legal_brief}
 
-## LEGAL ISSUES TO ANALYZE:
+## المسائل القانونية للتحليل:
 {issues}
 
-## RELEVANT LEGAL ARTICLES:
+## المواد القانونية ذات الصلة:
 {articles}
 
-## EVIDENCE RETRIEVED PER ISSUE:
+## الأدلة المسترجعة لكل مسألة:
 {issue_evidence}
 
 ---
 
-Produce a detailed legal opinion with the following structure:
+⚠️ تنبيه صارم جداً: جميع القيم النصية يجب أن تكون بالعربية فقط. لا تستخدم الإنجليزية إطلاقاً في القيم النصية.
+- نصوص المواد القانونية: اكتبها بالعربية (ترجم من الإنجليزية إذا لزم الأمر).
+- القيم الثابتة فقط بالإنجليزية: VALID, INVALID, SUPPORTED, NOT_SUPPORTED, PARTIALLY_SUPPORTED, UNCLEAR, HIGH, MEDIUM, LOW.
+
+أنتج رأياً قانونياً مفصلاً بالهيكل التالي:
 
 {{
     "case_summary": {{
-        "application_type": "...",
-        "parties_involved": "Brief description of parties",
-        "core_question": "The main legal question to be determined",
-        "key_facts": ["List the most important facts"]
+        "application_type": "نوع الطلب بالعربية مثل: توكيل خاص لشركة",
+        "parties_involved": "وصف مختصر للأطراف بالعربية",
+        "core_question": "السؤال القانوني الرئيسي بالعربية",
+        "key_facts": ["الحقائق الأهم بالعربية"]
     }},
     "overall_finding": "VALID|INVALID|VALID_WITH_CONDITIONS|REQUIRES_REVIEW|INCONCLUSIVE",
-    "confidence_score": 0.0-1.0,
+    "confidence_score": 0.85,
     "confidence_level": "HIGH|MEDIUM|LOW",
     "decision_bucket": "valid|valid_with_remediations|invalid|needs_review",
-    "opinion_summary_en": "2-3 paragraph summary of the legal opinion in English",
-    "opinion_summary_ar": "ملخص الرأي القانوني بالعربية - 2-3 فقرات",
+    "opinion_summary_en": "ملخص مختصر بالإنجليزية فقط",
+    "opinion_summary_ar": "ملخص الرأي القانوني بالعربية - 2-3 فقرات مفصلة. هذا هو الملخص الأساسي.",
     "detailed_analysis": {{
-        "introduction": "Overview of the legal analysis",
+        "introduction": "مقدمة التحليل القانوني بالعربية",
         "issue_by_issue_analysis": [
             {{
                 "issue_id": "ISSUE_1",
-                "issue_title": "Clear title for the issue",
-                "category": "capacity|authority|scope|formalities|validity|compliance",
-                "facts_considered": ["Specific facts relevant to this issue"],
-                "legal_analysis": "Detailed paragraph explaining the legal reasoning",
+                "issue_title": "عنوان المسألة بالعربية مثل: نطاق صلاحيات الموكّل",
+                "category": "الصفة أو الصلاحية أو النطاق أو الشكليات أو الصلاحية أو الامتثال",
+                "facts_considered": ["الحقائق ذات الصلة بالعربية"],
+                "legal_analysis": "فقرة مفصلة تشرح التسبيب القانوني بالعربية",
                 "applicable_articles": [
                     {{
-                        "article_number": 1,
-                        "article_text": "EXACT quote from the article",
-                        "application_to_facts": "How this article applies to the specific facts"
+                        "article_number": 2,
+                        "article_text": "نص المادة بالعربية - لا يجوز للموكل أن يمنح الوكيل حقوقاً تزيد عما يملكه",
+                        "application_to_facts": "كيف تنطبق هذه المادة على الحقائق المحددة بالعربية"
                     }}
                 ],
                 "finding": "SUPPORTED|NOT_SUPPORTED|PARTIALLY_SUPPORTED|UNCLEAR",
-                "confidence": 0.0-1.0,
-                "reasoning_summary": "One sentence summary of the conclusion for this issue"
+                "confidence": 0.90,
+                "reasoning_summary": "ملخص الاستنتاج بجملة واحدة بالعربية"
             }}
         ],
-        "synthesis": "How the individual issue findings combine to form the overall conclusion",
-        "conclusion": "Final determination with clear reasoning"
+        "synthesis": "كيف تتضافر النتائج الفردية لتشكيل الاستنتاج العام بالعربية",
+        "conclusion": "القرار النهائي مع التسبيب الواضح بالعربية"
     }},
     "citations": [
         {{
             "citation_id": "C1",
             "article_number": 2,
-            "law_name": "Name of the law",
-            "chapter": "Chapter/section if available",
-            "quoted_text": "EXACT text being cited",
-            "relevance": "Why this citation is relevant to the case"
+            "law_name": "اسم القانون بالعربية",
+            "chapter": "الفصل أو القسم بالعربية",
+            "quoted_text": "نص المادة المقتبس بالعربية",
+            "relevance": "سبب أهمية هذا الاستشهاد بالعربية"
         }}
     ],
-    "concerns": ["Specific concerns about this application"],
-    "recommendations": ["Specific recommendations"],
-    "conditions": ["If valid_with_remediations, list specific conditions that must be met"],
-    "grounding_score": 0.0-1.0
+    "concerns": ["الملاحظات المحددة بالعربية"],
+    "recommendations": ["التوصيات المحددة بالعربية"],
+    "conditions": ["الشروط المحددة بالعربية إذا كان القرار صالح مع تصحيحات"],
+    "grounding_score": 0.85
 }}
 
-IMPORTANT INSTRUCTIONS:
-1. CITE EXACTLY - Quote the actual text from articles, do not paraphrase
-2. BE SPECIFIC - Reference specific facts from the case
-3. SHOW REASONING - Explain HOW each article applies to the facts
-4. BE THOROUGH - Address every issue identified
-5. BE OBJECTIVE - Present the legal analysis without bias
+تعليمات مهمة:
+1. اقتبس بدقة - اقتبس النص الفعلي من المواد بالعربية
+2. كن محدداً - أشر إلى حقائق محددة من القضية
+3. أظهر التسبيب - اشرح كيف تنطبق كل مادة على الحقائق
+4. كن شاملاً - عالج كل مسألة محددة
+5. كن موضوعياً - قدّم التحليل القانوني دون تحيز
+6. ⚠️ جميع القيم النصية بالعربية فقط. مفاتيح JSON والقيم الثابتة (VALID, INVALID, SUPPORTED, الخ) فقط بالإنجليزية.
 
-Return ONLY the JSON object."""
+أعد فقط كائن JSON."""
+
+
+SYNTHESIS_PROMPT_TEMPLATE_EN = """Produce a comprehensive legal opinion based on the following case facts and legal research.
+
+## Legal Brief (Case Facts):
+{legal_brief}
+
+## Legal Issues for Analysis:
+{issues}
+
+## Relevant Legal Articles:
+{articles}
+
+## Retrieved Evidence per Issue:
+{issue_evidence}
+
+---
+
+⚠️ Strict requirement: All text values must be in English only. Do not use Arabic in text values.
+- Legal article texts: Write them in English (translate from Arabic if needed).
+- Only constant values in English: VALID, INVALID, SUPPORTED, NOT_SUPPORTED, PARTIALLY_SUPPORTED, UNCLEAR, HIGH, MEDIUM, LOW.
+
+Produce a detailed legal opinion with the following structure:
+
+{{
+    "case_summary": {{
+        "application_type": "Application type e.g.: Special POA for Company",
+        "parties_involved": "Brief description of parties",
+        "core_question": "The main legal question",
+        "key_facts": ["Most important facts"]
+    }},
+    "overall_finding": "VALID|INVALID|VALID_WITH_CONDITIONS|REQUIRES_REVIEW|INCONCLUSIVE",
+    "confidence_score": 0.85,
+    "confidence_level": "HIGH|MEDIUM|LOW",
+    "decision_bucket": "valid|valid_with_remediations|invalid|needs_review",
+    "opinion_summary_en": "Detailed English opinion summary - 2-3 paragraphs. This is the primary summary.",
+    "opinion_summary_ar": "Brief Arabic summary only",
+    "detailed_analysis": {{
+        "introduction": "Legal analysis introduction",
+        "issue_by_issue_analysis": [
+            {{
+                "issue_id": "ISSUE_1",
+                "issue_title": "Issue title e.g.: Scope of Grantor's Authority",
+                "category": "capacity or authority or scope or formalities or validity or compliance",
+                "facts_considered": ["Relevant facts"],
+                "legal_analysis": "Detailed paragraph explaining legal reasoning",
+                "applicable_articles": [
+                    {{
+                        "article_number": 2,
+                        "article_text": "Article text in English - A principal may not grant the agent rights exceeding what they possess",
+                        "application_to_facts": "How this article applies to the specific facts"
+                    }}
+                ],
+                "finding": "SUPPORTED|NOT_SUPPORTED|PARTIALLY_SUPPORTED|UNCLEAR",
+                "confidence": 0.90,
+                "reasoning_summary": "One-sentence conclusion summary"
+            }}
+        ],
+        "synthesis": "How individual findings combine to form the overall conclusion",
+        "conclusion": "Final decision with clear reasoning"
+    }},
+    "citations": [
+        {{
+            "citation_id": "C1",
+            "article_number": 2,
+            "law_name": "Law name in English",
+            "chapter": "Chapter or section in English",
+            "quoted_text": "Quoted article text in English",
+            "relevance": "Why this citation is important"
+        }}
+    ],
+    "concerns": ["Specific concerns"],
+    "recommendations": ["Specific recommendations"],
+    "conditions": ["Specific conditions if decision is valid with remediations"],
+    "grounding_score": 0.85
+}}
+
+Important instructions:
+1. Cite precisely - quote actual text from articles in English
+2. Be specific - refer to specific facts from the case
+3. Show reasoning - explain how each article applies to the facts
+4. Be comprehensive - address every identified issue
+5. Be objective - present legal analysis without bias
+6. ⚠️ All text values in English only. JSON keys and constant values (VALID, INVALID, SUPPORTED, etc.) only in English.
+
+Return ONLY a JSON object."""
 
 
 class Synthesizer:
@@ -126,7 +259,8 @@ class Synthesizer:
         legal_brief: dict,
         issues: list[dict],
         issue_evidence: dict[str, list[dict]],
-        all_articles: list[dict]
+        all_articles: list[dict],
+        locale: str = "ar"
     ) -> dict:
         """
         Synthesize a legal opinion from the evidence.
@@ -136,26 +270,31 @@ class Synthesizer:
             issues: List of legal issues analyzed
             issue_evidence: Map of issue_id -> relevant articles
             all_articles: All unique articles retrieved
+            locale: Language locale ("ar" or "en") - defaults to "ar"
 
         Returns:
             Legal opinion dict
         """
+        # Select prompts based on locale
+        system_prompt = SYNTHESIS_SYSTEM_PROMPT_EN if locale == "en" else SYNTHESIS_SYSTEM_PROMPT_AR
+        prompt_template = SYNTHESIS_PROMPT_TEMPLATE_EN if locale == "en" else SYNTHESIS_PROMPT_TEMPLATE_AR
+
         # Format articles for prompt
         articles_text = self._format_articles(all_articles)
         evidence_text = self._format_issue_evidence(issue_evidence)
 
-        prompt = SYNTHESIS_PROMPT_TEMPLATE.format(
+        prompt = prompt_template.format(
             legal_brief=json.dumps(legal_brief, ensure_ascii=False, indent=2),
             issues=json.dumps(issues, ensure_ascii=False, indent=2),
             articles=articles_text,
             issue_evidence=evidence_text
         )
 
-        logger.info("Calling LLM to synthesize legal opinion...")
+        logger.info(f"Calling LLM to synthesize legal opinion (locale={locale})...")
 
         response = await self.llm.chat(
             user_message=prompt,
-            system_message=SYNTHESIS_SYSTEM_PROMPT,
+            system_message=system_prompt,
             temperature=0.2,
             max_tokens=4000
         )
@@ -203,25 +342,26 @@ class Synthesizer:
             }
 
     def _format_articles(self, articles: list[dict]) -> str:
-        """Format articles for the prompt."""
+        """Format articles for the prompt, preferring Arabic text."""
         if not articles:
-            return "No relevant articles found."
+            return "لم يتم العثور على مواد ذات صلة."
 
         lines = []
         for art in articles:
-            lines.append(f"### Article {art.get('article_number', '?')}")
+            lines.append(f"### مادة {art.get('article_number', '?')}")
             if art.get("law_name"):
-                lines.append(f"Law: {art.get('law_name')}")
+                lines.append(f"القانون: {art.get('law_name')}")
 
-            text_en = art.get("text_english") or art.get("text_en", "")
             text_ar = art.get("text_arabic") or art.get("text_ar", "")
+            text_en = art.get("text_english") or art.get("text_en", "")
 
-            if text_en:
-                lines.append(f"English: {text_en}")
+            # Prefer Arabic text; fall back to English
             if text_ar:
-                lines.append(f"Arabic: {text_ar}")
+                lines.append(f"النص: {text_ar}")
+            elif text_en:
+                lines.append(f"النص (إنجليزي - يرجى ترجمته للعربية في المخرجات): {text_en}")
 
-            lines.append(f"Similarity: {art.get('similarity', 0):.0%}")
+            lines.append(f"التشابه: {art.get('similarity', 0):.0%}")
             lines.append("")
 
         return "\n".join(lines)
@@ -233,9 +373,9 @@ class Synthesizer:
             lines.append(f"### {issue_id}")
             if articles:
                 for art in articles:
-                    lines.append(f"- Article {art.get('article_number')}: {art.get('similarity', 0):.0%}")
+                    lines.append(f"- مادة {art.get('article_number')}: {art.get('similarity', 0):.0%}")
             else:
-                lines.append("- No relevant articles found")
+                lines.append("- لم يتم العثور على مواد ذات صلة")
             lines.append("")
 
         return "\n".join(lines)

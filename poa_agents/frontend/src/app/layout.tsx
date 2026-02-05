@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { ClientProviders } from "./providers";
 
 export const metadata: Metadata = {
-  title: "POA Agent UI",
-  description: "Power of Attorney validation agent interface",
+  title: "نظام التحقق من التوكيلات",
+  description: "واجهة وكيل التحقق من التوكيلات",
 };
 
 export default function RootLayout({
@@ -12,9 +13,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="ar" dir="rtl">
       <body className="bg-gray-950 text-gray-100 antialiased">
-        {children}
+        <ClientProviders>{children}</ClientProviders>
       </body>
     </html>
   );

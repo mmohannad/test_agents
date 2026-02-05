@@ -11,6 +11,7 @@ import {
 } from "@/lib/manualDefaults";
 import { runManualTier1Checks, type ValidationFinding } from "@/lib/validation";
 import type { AgentPayload } from "@/lib/agentApi";
+import { useLocale } from "@/lib/i18n";
 
 type AgentStepStatus = "idle" | "running" | "completed" | "error";
 
@@ -113,16 +114,17 @@ function AgentProgressBar({
   condenserError: string | null;
   legalSearchError: string | null;
 }) {
+  const { t } = useLocale();
   const isIdle = condenserStatus === "idle" && legalSearchStatus === "idle";
   if (isIdle) return null;
 
   const stepLabel = (() => {
-    if (condenserStatus === "running") return "Step 1/2: Running condenser agent...";
-    if (condenserStatus === "completed" && legalSearchStatus === "idle") return "Step 1/2 complete, starting legal search...";
-    if (legalSearchStatus === "running") return "Step 2/2: Running legal search agent...";
-    if (condenserStatus === "completed" && legalSearchStatus === "completed") return "Both agents complete";
-    if (condenserStatus === "error") return "Condenser agent failed";
-    if (legalSearchStatus === "error") return "Legal search agent failed";
+    if (condenserStatus === "running") return t("controlRow.step1Running");
+    if (condenserStatus === "completed" && legalSearchStatus === "idle") return t("controlRow.step1Done");
+    if (legalSearchStatus === "running") return t("controlRow.step2Running");
+    if (condenserStatus === "completed" && legalSearchStatus === "completed") return t("controlRow.agentsComplete");
+    if (condenserStatus === "error") return t("controlRow.condenserFailed");
+    if (legalSearchStatus === "error") return t("controlRow.legalSearchFailed");
     return null;
   })();
 
@@ -181,9 +183,9 @@ function AgentProgressBar({
 
       {/* Step indicators */}
       <div className="flex items-center gap-4 text-xs">
-        <StepDot label="Condenser" status={condenserStatus} error={condenserError} />
+        <StepDot label={t("manualEntry.condenser")} status={condenserStatus} error={condenserError} />
         <div className="flex-1 border-t border-gray-700" />
-        <StepDot label="Legal Search" status={legalSearchStatus} error={legalSearchError} />
+        <StepDot label={t("manualEntry.legalSearch")} status={legalSearchStatus} error={legalSearchError} />
       </div>
 
       {/* Error details */}
@@ -198,6 +200,7 @@ function AgentProgressBar({
 }
 
 function StepDot({ label, status, error }: { label: string; status: AgentStepStatus; error: string | null }) {
+  const { t } = useLocale();
   return (
     <div className="flex items-center gap-1.5" title={error ?? undefined}>
       <span className={`w-2 h-2 rounded-full ${
@@ -226,6 +229,7 @@ export function ManualEntryTab({
   condenserError,
   legalSearchError,
 }: ManualEntryTabProps) {
+  const { t } = useLocale();
   const [applicationType, setApplicationType] = useState("");
   const [firstParty, setFirstParty] = useState<ManualParty>(createEmptyParty());
   const [secondParty, setSecondParty] = useState<ManualParty>(createEmptyParty());
@@ -246,13 +250,13 @@ export function ManualEntryTab({
   }, [applicationType, firstParty, secondParty, namadhij, attachments, onRunAgents]);
 
   const handleRunAgents = useCallback(() => {
-    const findings = runManualTier1Checks(applicationType, firstParty, secondParty, attachments);
+    const findings = runManualTier1Checks(applicationType, firstParty, secondParty, attachments, t);
     if (findings.length > 0) {
       setValidationFindings(findings);
     } else {
       proceedWithAgents();
     }
-  }, [applicationType, firstParty, secondParty, attachments, proceedWithAgents]);
+  }, [applicationType, firstParty, secondParty, attachments, t, proceedWithAgents]);
 
   const hasMinimumData = applicationType !== "" || firstParty.fullName !== "" || attachments.length > 0;
 
@@ -267,20 +271,20 @@ export function ManualEntryTab({
   })();
 
   const statusPill = {
-    idle: { label: "Idle", color: "bg-gray-700 text-gray-300" },
-    running: { label: "Running...", color: "bg-blue-900 text-blue-300" },
-    completed: { label: "Completed", color: "bg-green-900 text-green-300" },
-    error: { label: "Failed", color: "bg-red-900 text-red-300" },
+    idle: { label: t("manualEntry.idle"), color: "bg-gray-700 text-gray-300" },
+    running: { label: t("manualEntry.running"), color: "bg-blue-900 text-blue-300" },
+    completed: { label: t("manualEntry.completed"), color: "bg-green-900 text-green-300" },
+    error: { label: t("manualEntry.failed"), color: "bg-red-900 text-red-300" },
   }[overallStatus];
 
   // Agent progress label (same as ControlRow)
   const agentProgressLabel = (() => {
-    if (condenserStatus === "running") return "Step 1/2: Running condenser...";
-    if (condenserStatus === "completed" && legalSearchStatus === "idle") return "Step 1/2 complete, starting legal search...";
-    if (legalSearchStatus === "running") return "Step 2/2: Running legal search...";
-    if (condenserStatus === "completed" && legalSearchStatus === "completed") return "Both agents complete";
-    if (condenserStatus === "error") return "Condenser failed";
-    if (legalSearchStatus === "error") return "Legal search failed";
+    if (condenserStatus === "running") return t("controlRow.step1Running");
+    if (condenserStatus === "completed" && legalSearchStatus === "idle") return t("controlRow.step1Done");
+    if (legalSearchStatus === "running") return t("controlRow.step2Running");
+    if (condenserStatus === "completed" && legalSearchStatus === "completed") return t("controlRow.agentsComplete");
+    if (condenserStatus === "error") return t("controlRow.condenserFailed");
+    if (legalSearchStatus === "error") return t("controlRow.legalSearchFailed");
     return null;
   })();
 
@@ -292,14 +296,14 @@ export function ManualEntryTab({
           {/* Left: label + metadata */}
           <div className="flex items-center gap-3 flex-1">
             <span className="text-sm font-medium text-gray-400 whitespace-nowrap">
-              Manual Entry
+              {t("manualEntry.title")}
             </span>
             <span className="text-gray-600">|</span>
             <span className="text-xs text-gray-400">
-              {attachments.length} attachment{attachments.length !== 1 ? "s" : ""}
+              {attachments.length} {attachments.length === 1 ? t("manualEntry.attachment") : t("manualEntry.attachments")}
               {attachments.length > 0 && (
                 <span className="ml-1 text-gray-500">
-                  ({attachments.filter(a => a.saved).length} saved)
+                  ({attachments.filter(a => a.saved).length} {t("manualEntry.saved")})
                 </span>
               )}
             </span>
@@ -341,14 +345,14 @@ export function ManualEntryTab({
             onClick={handleRunAgents}
             className="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-md hover:bg-emerald-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           >
-            {isRunning ? "Running..." : "Run Agents"}
+            {isRunning ? t("controlRow.running") : t("controlRow.runAgents")}
           </button>
         </div>
       </div>
 
       {/* Two-column layout */}
       <div className="flex-1 grid grid-cols-2 gap-0 min-h-0">
-        <div className="border-r border-gray-800 overflow-y-auto">
+        <div className="border-l border-gray-800 overflow-y-auto">
           <ApplicationForm
             applicationType={applicationType}
             onApplicationTypeChange={setApplicationType}

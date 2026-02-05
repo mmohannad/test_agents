@@ -189,6 +189,7 @@ async def handle_message_send(
 
         application_id = input_data.get("application_id")
         legal_brief = input_data.get("legal_brief")
+        locale = input_data.get("locale", "ar")  # Extract locale, default to "ar"
 
         # Load Legal Brief from Supabase if not provided
         if application_id and not legal_brief:
@@ -213,9 +214,9 @@ async def handle_message_send(
         # ========================================
         # PHASE 1: DECOMPOSITION
         # ========================================
-        logger.info("Phase 1: Decomposing case into legal sub-issues...")
+        logger.info(f"Phase 1: Decomposing case into legal sub-issues (locale={locale})...")
 
-        issues = await decomposer.decompose(legal_brief)
+        issues = await decomposer.decompose(legal_brief, locale=locale)
         logger.info(f"Decomposed into {len(issues)} legal issues")
 
         # ========================================
@@ -266,13 +267,14 @@ async def handle_message_send(
         # ========================================
         # PHASE 3: SYNTHESIS
         # ========================================
-        logger.info("Phase 3: Synthesizing legal opinion...")
+        logger.info(f"Phase 3: Synthesizing legal opinion (locale={locale})...")
 
         opinion = await synthesizer.synthesize(
             legal_brief=legal_brief,
             issues=issues,
             issue_evidence=issue_evidence,
-            all_articles=unique_articles
+            all_articles=unique_articles,
+            locale=locale
         )
 
         # Add metadata

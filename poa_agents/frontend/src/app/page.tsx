@@ -9,6 +9,7 @@ import {
   parseAgentContent,
   type AgentPayload,
 } from "@/lib/agentApi";
+import { useLocale } from "@/lib/i18n";
 import { ControlRow } from "@/components/ControlRow";
 import { StructuredPanel } from "@/components/StructuredPanel";
 import { UnstructuredPanel } from "@/components/UnstructuredPanel";
@@ -19,6 +20,7 @@ import { ManualEntryTab } from "@/components/ManualEntryTab";
 type AgentStepStatus = "idle" | "running" | "completed" | "error";
 
 export default function Home() {
+  const { locale, setLocale, t } = useLocale();
   const [activeMode, setActiveMode] = useState<"db" | "manual">("db");
 
   const [context, setContext] = useState<ContextData | null>(null);
@@ -178,7 +180,7 @@ export default function Home() {
     let condenserParsed: Record<string, unknown> | string;
     try {
       console.log("[RunAgents] Step 1/2: Sending payload to condenser agent...");
-      const condenserRaw = await runCondenserAgent(payload);
+      const condenserRaw = await runCondenserAgent(payload, locale);
       condenserParsed = parseAgentContent(condenserRaw);
       console.log("[RunAgents] Condenser result:", condenserParsed);
       setCondenserResult(condenserParsed);
@@ -201,7 +203,7 @@ export default function Home() {
     setLegalSearchStatus("running");
     try {
       console.log("[RunAgents] Step 2/2: Sending legal brief to legal search agent...");
-      const legalRaw = await runLegalSearchAgent(condenserParsed);
+      const legalRaw = await runLegalSearchAgent(condenserParsed, locale);
       const legalParsed = parseAgentContent(legalRaw);
       console.log("[RunAgents] Legal search result:", legalParsed);
       setLegalSearchResult(legalParsed);
@@ -212,7 +214,7 @@ export default function Home() {
       setLegalSearchError(msg);
       setLegalSearchStatus("error");
     }
-  }, []);
+  }, [locale]);
 
   // DB View: builds payload from context, runs validation first
   const proceedWithAgents = useCallback(async () => {
@@ -223,13 +225,13 @@ export default function Home() {
 
   const handleRunAgents = useCallback(() => {
     if (!context) return;
-    const findings = runTier1Checks(context);
+    const findings = runTier1Checks(context, t);
     if (findings.length > 0) {
       setValidationFindings(findings);
     } else {
       proceedWithAgents();
     }
-  }, [context, proceedWithAgents]);
+  }, [context, t, proceedWithAgents]);
 
   // Compute overall agent status for ControlRow
   const overallAgentStatus: AgentStepStatus =
@@ -264,7 +266,7 @@ export default function Home() {
               : "text-gray-400 border-transparent hover:text-gray-200"
           }`}
         >
-          DB View
+          {t("page.dbView")}
         </button>
         <button
           onClick={() => setActiveMode("manual")}
@@ -274,8 +276,18 @@ export default function Home() {
               : "text-gray-400 border-transparent hover:text-gray-200"
           }`}
         >
-          Manual Entry
+          {t("page.manualEntry")}
         </button>
+
+        {/* Language toggle */}
+        <div className="ml-auto flex items-center">
+          <button
+            onClick={() => setLocale(locale === "ar" ? "en" : "ar")}
+            className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-700 text-gray-300 hover:bg-gray-800 hover:text-gray-100 transition-colors"
+          >
+            {locale === "ar" ? "EN" : "AR"}
+          </button>
+        </div>
       </div>
 
       {/* DB View (existing functionality, unchanged) */}
@@ -298,9 +310,9 @@ export default function Home() {
           {status === "idle" && (
             <div className="flex-1 flex items-center justify-center text-gray-500">
               <div className="text-center">
-                <p className="text-lg">Enter an Application ID to load case context</p>
+                <p className="text-lg">{t("page.idlePrompt")}</p>
                 <p className="text-sm mt-2 text-gray-600">
-                  This loads the same data the condenser agent receives from Supabase
+                  {t("page.idleDescription")}
                 </p>
               </div>
             </div>
@@ -310,7 +322,7 @@ export default function Home() {
             <div className="flex-1 flex items-center justify-center text-gray-400">
               <div className="text-center">
                 <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-gray-600 border-t-blue-500 mb-4" />
-                <p>Loading application context from Supabase...</p>
+                <p>{t("page.loadingContext")}</p>
               </div>
             </div>
           )}
@@ -318,7 +330,7 @@ export default function Home() {
           {status === "error" && (
             <div className="flex-1 flex items-center justify-center">
               <div className="bg-red-950/50 border border-red-800 rounded-lg p-6 max-w-lg">
-                <p className="text-red-400 font-medium">Failed to load context</p>
+                <p className="text-red-400 font-medium">{t("page.loadFailed")}</p>
                 <p className="text-red-300 text-sm mt-2">{error}</p>
               </div>
             </div>
@@ -326,7 +338,7 @@ export default function Home() {
 
           {status === "loaded" && context && (
             <div className="flex-1 grid grid-cols-2 gap-0 min-h-0">
-              <div className="border-r border-gray-800 overflow-y-auto">
+              <div className="border-l border-gray-800 overflow-y-auto">
                 <StructuredPanel
                   data={context.structured}
                   onUpdateApplication={updateApplication}
