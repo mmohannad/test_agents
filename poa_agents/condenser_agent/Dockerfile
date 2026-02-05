@@ -2,8 +2,8 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install agentex-sdk (provides all deps: openai, supabase, fastapi, uvicorn, etc.)
-RUN pip install --no-cache-dir agentex-sdk==0.6.7
+# Install agentex-sdk + additional deps it doesn't bundle
+RUN pip install --no-cache-dir agentex-sdk==0.6.7 supabase python-dotenv
 
 # Copy shared utilities
 COPY shared/ /app/shared/
