@@ -14,10 +14,13 @@ import { StructuredPanel } from "@/components/StructuredPanel";
 import { UnstructuredPanel } from "@/components/UnstructuredPanel";
 import { ValidationModal } from "@/components/ValidationModal";
 import { ResultsDrawer } from "@/components/ResultsDrawer";
+import { ManualEntryTab } from "@/components/ManualEntryTab";
 
 type AgentStepStatus = "idle" | "running" | "completed" | "error";
 
 export default function Home() {
+  const [activeMode, setActiveMode] = useState<"db" | "manual">("db");
+
   const [context, setContext] = useState<ContextData | null>(null);
   const [status, setStatus] = useState<
     "idle" | "loading" | "loaded" | "error"
@@ -159,10 +162,8 @@ export default function Home() {
     };
   }, [context]);
 
-  const proceedWithAgents = useCallback(async () => {
-    const payload = getAgentPayload();
-    if (!payload) return;
-
+  // Core agent runner — accepts an explicit payload (used by both DB View and Manual Entry)
+  const runAgentsWithPayload = useCallback(async (payload: AgentPayload) => {
     setValidationFindings(null);
 
     // Reset all agent state
@@ -177,7 +178,7 @@ export default function Home() {
     let condenserParsed: Record<string, unknown> | string;
     try {
       console.log("[RunAgents] Step 1/2: Sending payload to condenser agent...");
-      const condenserRaw = await runCondenserAgent(payload as AgentPayload);
+      const condenserRaw = await runCondenserAgent(payload);
       condenserParsed = parseAgentContent(condenserRaw);
       console.log("[RunAgents] Condenser result:", condenserParsed);
       setCondenserResult(condenserParsed);
@@ -211,7 +212,14 @@ export default function Home() {
       setLegalSearchError(msg);
       setLegalSearchStatus("error");
     }
-  }, [getAgentPayload]);
+  }, []);
+
+  // DB View: builds payload from context, runs validation first
+  const proceedWithAgents = useCallback(async () => {
+    const payload = getAgentPayload();
+    if (!payload) return;
+    await runAgentsWithPayload(payload as AgentPayload);
+  }, [getAgentPayload, runAgentsWithPayload]);
 
   const handleRunAgents = useCallback(() => {
     if (!context) return;
@@ -239,72 +247,115 @@ export default function Home() {
                 ? "running" // condenser done, legal search pending
                 : "idle";
 
+  const isAgentsRunning = overallAgentStatus === "running";
+
   const showResults =
     condenserResult !== null || legalSearchResult !== null;
 
   return (
     <div className="min-h-screen flex flex-col">
-      <ControlRow
-        onLoad={handleLoad}
-        status={status}
-        agentStatus={overallAgentStatus}
-        condenserStatus={condenserStatus}
-        legalSearchStatus={legalSearchStatus}
-        error={error}
-        agentError={condenserError || legalSearchError}
-        loadedAt={loadedAt}
-        partyCount={context?.structured.parties.length ?? 0}
-        docCount={context?.unstructured.document_extractions.length ?? 0}
-        onRunAgents={handleRunAgents}
-      />
+      {/* Mode Tab Bar */}
+      <div className="border-b border-gray-800 bg-gray-950 px-4 flex items-center gap-0">
+        <button
+          onClick={() => setActiveMode("db")}
+          className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 ${
+            activeMode === "db"
+              ? "text-blue-400 border-blue-500"
+              : "text-gray-400 border-transparent hover:text-gray-200"
+          }`}
+        >
+          DB View
+        </button>
+        <button
+          onClick={() => setActiveMode("manual")}
+          className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 ${
+            activeMode === "manual"
+              ? "text-blue-400 border-blue-500"
+              : "text-gray-400 border-transparent hover:text-gray-200"
+          }`}
+        >
+          Manual Entry
+        </button>
+      </div>
 
-      {status === "idle" && (
-        <div className="flex-1 flex items-center justify-center text-gray-500">
-          <div className="text-center">
-            <p className="text-lg">Enter an Application ID to load case context</p>
-            <p className="text-sm mt-2 text-gray-600">
-              This loads the same data the condenser agent receives from Supabase
-            </p>
-          </div>
-        </div>
+      {/* DB View (existing functionality, unchanged) */}
+      {activeMode === "db" && (
+        <>
+          <ControlRow
+            onLoad={handleLoad}
+            status={status}
+            agentStatus={overallAgentStatus}
+            condenserStatus={condenserStatus}
+            legalSearchStatus={legalSearchStatus}
+            error={error}
+            agentError={condenserError || legalSearchError}
+            loadedAt={loadedAt}
+            partyCount={context?.structured.parties.length ?? 0}
+            docCount={context?.unstructured.document_extractions.length ?? 0}
+            onRunAgents={handleRunAgents}
+          />
+
+          {status === "idle" && (
+            <div className="flex-1 flex items-center justify-center text-gray-500">
+              <div className="text-center">
+                <p className="text-lg">Enter an Application ID to load case context</p>
+                <p className="text-sm mt-2 text-gray-600">
+                  This loads the same data the condenser agent receives from Supabase
+                </p>
+              </div>
+            </div>
+          )}
+
+          {status === "loading" && (
+            <div className="flex-1 flex items-center justify-center text-gray-400">
+              <div className="text-center">
+                <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-gray-600 border-t-blue-500 mb-4" />
+                <p>Loading application context from Supabase...</p>
+              </div>
+            </div>
+          )}
+
+          {status === "error" && (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="bg-red-950/50 border border-red-800 rounded-lg p-6 max-w-lg">
+                <p className="text-red-400 font-medium">Failed to load context</p>
+                <p className="text-red-300 text-sm mt-2">{error}</p>
+              </div>
+            </div>
+          )}
+
+          {status === "loaded" && context && (
+            <div className="flex-1 grid grid-cols-2 gap-0 min-h-0">
+              <div className="border-r border-gray-800 overflow-y-auto">
+                <StructuredPanel
+                  data={context.structured}
+                  onUpdateApplication={updateApplication}
+                  onUpdateParty={updateParty}
+                  onUpdateCapacityProof={updateCapacityProof}
+                />
+              </div>
+              <div className="overflow-y-auto">
+                <UnstructuredPanel
+                  data={context.unstructured}
+                  onUpdateExtraction={updateExtraction}
+                  onUpdateExtractedField={updateExtractedField}
+                />
+              </div>
+            </div>
+          )}
+        </>
       )}
 
-      {status === "loading" && (
-        <div className="flex-1 flex items-center justify-center text-gray-400">
-          <div className="text-center">
-            <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-gray-600 border-t-blue-500 mb-4" />
-            <p>Loading application context from Supabase...</p>
-          </div>
-        </div>
-      )}
-
-      {status === "error" && (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="bg-red-950/50 border border-red-800 rounded-lg p-6 max-w-lg">
-            <p className="text-red-400 font-medium">Failed to load context</p>
-            <p className="text-red-300 text-sm mt-2">{error}</p>
-          </div>
-        </div>
-      )}
-
-      {status === "loaded" && context && (
-        <div className="flex-1 grid grid-cols-2 gap-0 min-h-0">
-          <div className="border-r border-gray-800 overflow-y-auto">
-            <StructuredPanel
-              data={context.structured}
-              onUpdateApplication={updateApplication}
-              onUpdateParty={updateParty}
-              onUpdateCapacityProof={updateCapacityProof}
-            />
-          </div>
-          <div className="overflow-y-auto">
-            <UnstructuredPanel
-              data={context.unstructured}
-              onUpdateExtraction={updateExtraction}
-              onUpdateExtractedField={updateExtractedField}
-            />
-          </div>
-        </div>
+      {/* Manual Entry */}
+      {activeMode === "manual" && (
+        <ManualEntryTab
+          onRunAgents={runAgentsWithPayload}
+          isRunning={isAgentsRunning}
+          condenserStatus={condenserStatus}
+          legalSearchStatus={legalSearchStatus}
+          condenserError={condenserError}
+          legalSearchError={legalSearchError}
+        />
       )}
 
       {/* Results Drawer */}

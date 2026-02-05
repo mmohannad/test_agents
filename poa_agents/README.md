@@ -16,7 +16,11 @@ Browser  ──>  Next.js Frontend
                              └── Agentic RAG + OpenAI
 ```
 
-**Flow:** Load application context from Supabase -> inspect/edit in split-view UI -> run condenser agent (produces Legal Brief) -> auto-chain to legal search agent (produces Legal Opinion with citations) -> view results.
+**Two modes of operation:**
+- **DB View:** Load application context from Supabase -> inspect/edit in split-view UI -> run agents
+- **Manual Entry:** Enter all application data by hand (parties, attachments, signatories) -> run agents
+
+Both modes produce the same `AgentPayload` and feed into the same agent pipeline: Tier 1 validation -> Condenser Agent (Legal Brief) -> Legal Search Agent (Legal Opinion with citations).
 
 Both agents use the AgentEx ACP protocol (JSON-RPC 2.0 over `POST /api`). The frontend sends data directly in the payload (Mode B), so agents skip their internal DB fetch and operate on the provided data. The entire chain runs in-memory through the frontend.
 
@@ -26,8 +30,8 @@ Both agents use the AgentEx ACP protocol (JSON-RPC 2.0 over `POST /api`). The fr
 
 ### Prerequisites
 
-- Python 3.11+
-- Node.js >= 18
+- Python 3.12+
+- Node.js >= 22
 - `agentex` CLI (`pip install agentex-sdk`)
 
 ### 1. Configure environment
@@ -54,12 +58,18 @@ Legal search agent also needs:
 | `SIMILARITY_THRESHOLD` | Min similarity for article retrieval (e.g. `0.3`) |
 | `MAX_ARTICLES_PER_ISSUE` | Max articles per legal issue (e.g. `5`) |
 
-Frontend env (`frontend/.env.local`):
+Frontend env (`frontend/.env`):
 
 ```bash
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+cp frontend/.env.example frontend/.env
 ```
+
+| Variable | Description |
+|----------|-------------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL (client-side) |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key (client-side) |
+| `CONDENSER_URL` | Condenser agent URL (server-side, default `http://localhost:8012`) |
+| `LEGAL_SEARCH_URL` | Legal search agent URL (server-side, default `http://localhost:8013`) |
 
 ### 2. Install frontend dependencies
 
@@ -173,20 +183,63 @@ cd frontend && npm run dev
 
 ---
 
+## Manual Entry Mode
+
+The Manual Entry tab lets you enter application data without a Supabase record:
+
+**Application Form (left panel):**
+- Application type selector (7 POA types)
+- First Party: capacity (~60 Arabic options), ID type (~12 options), ID number, expiry date, citizenship, full name, phone, email
+- Second Party: same fields
+- Namadhij (free text for granted powers)
+
+**Attachment Panel (right panel):**
+- Add attachment instances by document type (Personal ID, Commercial Registration, Passport, POA, Authorization, Trade License, Foundation Contract, Establishment Record)
+- Each type has specific extracted fields with proper date pickers for date fields
+- Commercial Registration attachments support authorized signatories (name, QID, nationality, percentage, position)
+- Save/unsave state per attachment
+
+## Tier 1 Validation
+
+Before agents run, deterministic pre-flight checks catch data issues:
+
+| Check | Severity | Description |
+|-------|----------|-------------|
+| Missing application type | Warning | No transaction type selected |
+| Missing party names/IDs | Warning | First or second party missing key data |
+| No attachments | Warning | No attachment instances added |
+| Unsaved attachments | Warning | Attachments with edits not saved |
+| No Personal ID attachments | Error | Parties exist but no ID documents |
+| ID expiry in past | Error | Party ID or attachment expiry date has passed |
+| CR expiry in past | Error | Commercial Registration expired |
+| CR status not Active | Error | CR status is not "Active" or "نشط" |
+| Party vs ID mismatch | Error/Warning | Name, citizenship, or expiry doesn't match between form and attachment |
+| CR signatory vs party mismatch | Error/Warning | Signatory ID or name doesn't match any declared party |
+
+Errors block submission. Warnings allow "Proceed Anyway".
+
+---
+
 ## Usage
 
-1. Open the frontend URL (locally: http://localhost:3000)
+### DB View
+1. Open http://localhost:3000
 2. Enter an Application ID and click **Load Context**
-3. Inspect structured data (left panel) and document extractions (right panel)
-4. Optionally edit any field inline (click to edit)
-5. Click **Run Agents** -- the pipeline runs:
-   - Tier 1 validation checks (blocks on errors, warns on issues)
-   - Step 1/2: Condenser agent produces a Legal Brief
-   - Step 2/2: Legal search agent produces a Legal Opinion
-6. View results in the bottom drawer:
-   - **Legal Brief** tab: case summary, parties, POA details, evidence, open questions
-   - **Legal Opinion** tab: validity decision, confidence, per-issue analysis, citations, retrieval metrics
-   - **Raw JSON** tab: full agent responses
+3. Inspect structured data (left) and document extractions (right)
+4. Optionally edit any field inline
+5. Click **Run Agents**
+
+### Manual Entry
+1. Switch to the **Manual Entry** tab
+2. Fill in application type, first/second party details
+3. Add attachments with extracted fields, save each one
+4. Click **Run Agents**
+
+### Agent Pipeline (both modes)
+- Tier 1 validation runs first (blocks on errors, warns on issues)
+- Step 1/2: Condenser agent produces a Legal Brief
+- Step 2/2: Legal search agent produces a Legal Opinion
+- Results appear in the bottom drawer with Legal Brief, Legal Opinion, and Raw JSON tabs
 
 ---
 
@@ -204,14 +257,28 @@ poa_agents/
 │   ├── manifest.yaml
 │   ├── project/acp.py        # ACP handler (JSON-RPC 2.0)
 │   └── .env.example
-├── frontend/                 # Next.js 16 web UI
+├── frontend/                 # Next.js 16, React 19, Tailwind v4
 │   ├── Dockerfile
-│   ├── src/app/page.tsx      # Main page + state management
-│   ├── src/app/api/agent/    # Server-side proxies (CORS)
-│   │   ├── condenser/route.ts
-│   │   └── legal-search/route.ts
-│   ├── src/components/       # UI components
-│   └── src/lib/              # Supabase client, agent API, validation
+│   ├── src/app/
+│   │   ├── page.tsx          # Main page (DB View + Manual Entry tabs)
+│   │   └── api/agent/        # Server-side proxies (avoids CORS)
+│   │       ├── condenser/route.ts
+│   │       └── legal-search/route.ts
+│   ├── src/components/
+│   │   ├── ControlRow.tsx        # DB View header bar
+│   │   ├── StructuredPanel.tsx   # Structured data (parties, proofs)
+│   │   ├── UnstructuredPanel.tsx  # Document extractions (OCR)
+│   │   ├── ManualEntryTab.tsx    # Manual Entry container
+│   │   ├── ValidationModal.tsx   # Tier 1 findings modal
+│   │   ├── ResultsDrawer.tsx     # Agent results drawer
+│   │   └── manual/
+│   │       ├── ApplicationForm.tsx  # Party + namadhij form
+│   │       └── AttachmentPanel.tsx  # Attachment instances + signatories
+│   └── src/lib/
+│       ├── agentApi.ts       # ACP JSON-RPC 2.0 client
+│       ├── supabase.ts       # Supabase client (lazy init for Docker)
+│       ├── validation.ts     # Tier 1 checks (DB View + Manual Entry)
+│       └── manualDefaults.ts # Dropdown options, field schemas, types
 ├── shared/                   # Shared schemas
 ├── dev.sh                    # Single-command local startup script
 └── project_plan.md           # Detailed architecture docs

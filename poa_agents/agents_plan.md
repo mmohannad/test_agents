@@ -2,7 +2,7 @@
 
 > **Based on:** ML Committee Report (Jan 2, 2026)  
 > **Framework:** Agentex (Temporal Workflows) + Deterministic Python Services  
-> **Status:** Planning
+> **Status:** Condenser + Legal Search agents implemented, Frontend UI with Manual Entry complete, Tier 1 validation active
 
 ---
 
@@ -669,15 +669,24 @@ routing_decision_type, routing_target, ...
 - [ ] Test: attachments → extractions → merge with Case Object
 
 ### Phase 3: Legal Research Agents (Week 3-4)
-- [ ] Create `condenser_agent/` (Sync agent)
-- [ ] Create `legal_search_agent/` with all 5 phases
-- [ ] Implement RAG with articles vector store
+- [x] Create `condenser_agent/` (Sync agent)
+- [x] Create `legal_search_agent/` with all 5 phases
+- [x] Implement RAG with articles vector store
 - [ ] Implement stability testing
-- [ ] Test Tier 2 pipeline
+- [x] Test Tier 2 pipeline
+
+### Phase 3.5: Frontend UI
+- [x] Create Next.js 16 frontend with DB View (load from Supabase, edit, run agents)
+- [x] Add Manual Entry tab (form-based data entry without Supabase)
+- [x] Implement Tier 1 deterministic validation (DB View + Manual Entry)
+- [x] Cross-validation: parties vs ID attachments, CR signatories vs parties
+- [x] Agent chaining: Condenser -> Legal Search with progress bar
+- [x] Results drawer with formatted Legal Brief and Legal Opinion
+- [x] Docker build (standalone Next.js)
 
 ### Phase 4: Integration & Pipeline (Week 4-5)
-- [ ] Create pipeline runner script (not an agent, just orchestration code)
-- [ ] End-to-end integration testing
+- [x] Create pipeline runner script (frontend orchestrates via API routes)
+- [x] End-to-end integration testing
 - [ ] Policy threshold tuning
 - [ ] Performance benchmarking
 
