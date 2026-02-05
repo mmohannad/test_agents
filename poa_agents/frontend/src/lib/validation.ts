@@ -378,17 +378,7 @@ export function runManualTier1Checks(
       });
     }
 
-    // 3b. CR status check
-    const crStatus = (ef.cr_status ?? "").trim().toLowerCase();
-    if (crStatus && crStatus !== "active" && crStatus !== "نشط") {
-      findings.push({
-        severity: "error",
-        category: "Invalid Status",
-        message: `CR for "${crName}" has status "${ef.cr_status}" (expected Active)`,
-      });
-    }
-
-    // 3c. Cross-validate CR signatories against parties
+    // 3b. Cross-validate CR signatories against parties
     const allPartyIds = new Set(
       parties.map(({ party }) => party.idNumber.trim()).filter(Boolean)
     );
