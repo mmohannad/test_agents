@@ -101,12 +101,14 @@ export function EditableField({
     >
       <span className="text-gray-500 shrink-0">{label}:</span>
       {display ? (
-        <span className="text-gray-200 break-all" dir={dir}>
-          {display}
-          <span className="text-gray-700 text-xs ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
+        <>
+          <span className="text-gray-200 break-all" dir={dir}>
+            {display}
+          </span>
+          <span className="text-gray-700 text-xs ml-2 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
             {t("common.edit")}
           </span>
-        </span>
+        </>
       ) : (
         <span className="text-gray-600 italic">
           {t("common.emptyClickToAdd")}

@@ -389,11 +389,13 @@ function KV({
   value,
   mono,
   span,
+  dir,
 }: {
   label: string;
   value?: string | null;
   mono?: boolean;
   span?: number;
+  dir?: "ltr" | "rtl";
 }) {
   return (
     <div style={span ? { gridColumn: `span ${span}` } : undefined}>
@@ -402,6 +404,7 @@ function KV({
         className={`text-xs text-gray-200 ${mono ? "font-mono" : ""} ${
           !value ? "text-gray-600 italic" : ""
         }`}
+        dir={dir}
       >
         {value || "\u2014"}
       </p>
@@ -550,7 +553,7 @@ function PartiesSection({ data }: { data: Party[] }) {
                   key={i}
                   className="bg-gray-900/50 rounded p-3 grid grid-cols-3 gap-x-4 gap-y-2 text-sm"
                 >
-                  <KV label={t("resultsDrawer.nameAr")} value={p.name_ar} />
+                  <KV label={t("resultsDrawer.nameAr")} value={p.name_ar} dir="rtl" />
                   <KV label={t("resultsDrawer.nameEn")} value={p.name_en} />
                   <KV label={t("resultsDrawer.idNumber")} value={p.qid} mono />
                   <KV label={t("resultsDrawer.nationality")} value={p.nationality} />
@@ -573,7 +576,7 @@ function EntitySection({ data }: { data: EntityInformation }) {
   return (
     <Section title={t("resultsDrawer.entityInfo")}>
       <div className="grid grid-cols-4 gap-4 text-sm">
-        <KV label={t("resultsDrawer.companyAr")} value={data.company_name_ar} />
+        <KV label={t("resultsDrawer.companyAr")} value={data.company_name_ar} dir="rtl" />
         <KV label={t("resultsDrawer.companyEn")} value={data.company_name_en} />
         <KV label={t("resultsDrawer.registrationNumber")} value={data.registration_number} mono />
         <KV label={t("resultsDrawer.entityType")} value={data.entity_type} />
@@ -1131,8 +1134,10 @@ function CitationsSection({ opinion }: { opinion: LegalOpinion }) {
             </div>
             {(c.quoted_text || c.text_ar || c.text_arabic || c.text_en || c.text_english) && (() => {
               const displayText = c.quoted_text || c.text_ar || c.text_arabic || c.text_en || c.text_english || "";
+              // Arabic text if any Arabic field is used
+              const isArabic = !!(c.text_ar || c.text_arabic || (!c.text_en && !c.text_english && c.quoted_text));
               return (
-                <p className="text-[11px] text-gray-400 leading-relaxed">
+                <p className="text-[11px] text-gray-400 leading-relaxed" dir={isArabic ? "rtl" : "ltr"}>
                   {displayText.slice(0, 300)}
                   {displayText.length > 300 ? "..." : ""}
                 </p>
