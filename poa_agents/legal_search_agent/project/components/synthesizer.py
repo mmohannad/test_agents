@@ -348,9 +348,16 @@ class Synthesizer:
 
         lines = []
         for art in articles:
-            lines.append(f"### مادة {art.get('article_number', '?')}")
-            if art.get("law_name"):
-                lines.append(f"القانون: {art.get('law_name')}")
+            # Use citation info if available (from poa_articles table)
+            citation = art.get("citation", {})
+            if citation and citation.get("formatted_ar"):
+                lines.append(f"### {citation.get('formatted_ar')}")
+            else:
+                lines.append(f"### مادة {art.get('article_number', '?')}")
+                if art.get("law_name"):
+                    lines.append(f"القانون: {art.get('law_name')}")
+                elif citation.get("law_name_ar"):
+                    lines.append(f"القانون: {citation.get('law_name_ar')}")
 
             text_ar = art.get("text_arabic") or art.get("text_ar", "")
             text_en = art.get("text_english") or art.get("text_en", "")

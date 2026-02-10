@@ -367,6 +367,8 @@ class RetrievalAgent:
                     text_arabic=article.get("text_arabic", ""),
                     text_english=article.get("text_english", ""),
                     hierarchy_path=article.get("hierarchy_path", {}),
+                    citation=article.get("citation", {}),
+                    law_id=article.get("law_id"),
                     found_by_query=query_text[:100],
                     found_in_iteration=iteration,
                     similarity=article.get("similarity", 0)

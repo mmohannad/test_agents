@@ -57,7 +57,7 @@ class LegalSearchSupabaseClient:
         similarity_threshold: float = 0.3
     ) -> list[dict]:
         """
-        Perform semantic search on articles.
+        Perform semantic search on poa_articles table.
 
         Args:
             query_embedding: The embedding vector (1536 dimensions)
@@ -72,7 +72,7 @@ class LegalSearchSupabaseClient:
 
         try:
             response = self.client.rpc(
-                "match_articles",
+                "match_poa_articles",
                 {
                     "query_embedding": query_embedding,
                     "match_threshold": float(similarity_threshold),
@@ -88,7 +88,7 @@ class LegalSearchSupabaseClient:
             if len(results) == 0 and similarity_threshold > 0.2:
                 logger.info("Retrying with lower threshold (0.2)...")
                 response = self.client.rpc(
-                    "match_articles",
+                    "match_poa_articles",
                     {
                         "query_embedding": query_embedding,
                         "match_threshold": 0.2,
@@ -111,8 +111,8 @@ class LegalSearchSupabaseClient:
         logger.warning("Using fallback text search")
         try:
             response = (
-                self.client.table("articles")
-                .select("article_number, hierarchy_path, text_arabic, text_english")
+                self.client.table("poa_articles")
+                .select("article_number, hierarchy_path, text_arabic, text_english, citation")
                 .eq("is_active", True)
                 .limit(limit)
                 .execute()
@@ -126,25 +126,28 @@ class LegalSearchSupabaseClient:
             logger.error(f"Fallback search failed: {e}")
             return []
 
-    def get_article_by_number(self, article_number: int) -> Optional[dict]:
+    def get_article_by_number(self, article_number: int, law_id: int | None = None) -> Optional[dict]:
         """
         Get a specific article by number.
 
         Args:
             article_number: The article number
+            law_id: Optional law ID to disambiguate (same article number can exist in different laws)
 
         Returns:
             Article dict or None
         """
         try:
-            response = (
-                self.client.table("articles")
+            query = (
+                self.client.table("poa_articles")
                 .select("*")
                 .eq("article_number", article_number)
-                .single()
-                .execute()
             )
-            return response.data if response.data else None
+            if law_id:
+                query = query.eq("law_id", law_id)
+
+            response = query.limit(1).execute()
+            return response.data[0] if response.data else None
         except Exception as e:
             logger.error(f"Failed to get article {article_number}: {e}")
             return None

@@ -217,6 +217,8 @@ class CrossRefExpander:
             text_arabic=article_dict.get("text_arabic", ""),
             text_english=article_dict.get("text_english", ""),
             hierarchy_path=article_dict.get("hierarchy_path", {}),
+            citation=article_dict.get("citation", {}),
+            law_id=article_dict.get("law_id"),
             found_by_query=f"cross_reference_from_{referenced_by}",
             found_in_iteration=iteration,
             similarity=0.8,  # Assign high similarity for cross-references

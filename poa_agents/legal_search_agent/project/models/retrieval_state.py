@@ -86,10 +86,14 @@ class ArticleResult:
     text_english: str
     hierarchy_path: dict
 
+    # Citation info (from poa_articles table)
+    citation: dict = field(default_factory=dict)
+    law_id: Optional[int] = None
+
     # Retrieval info
-    found_by_query: str
-    found_in_iteration: int
-    similarity: float
+    found_by_query: str = ""
+    found_in_iteration: int = 0
+    similarity: float = 0.0
 
     # Cross-reference info
     is_cross_reference: bool = False
