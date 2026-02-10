@@ -133,6 +133,28 @@ ANALYSIS_PROMPT_TEMPLATE_AR = """استخرج ونظّم جميع الحقائق
 
 ---
 
+⚠️ خطوة أولى حرجة - استخراج الحقول من المستندات:
+قبل إنشاء الموجز، افحص document_extractions أعلاه واستخرج هذه الحقول من extracted_fields:
+
+من مستندات التوكيل (POWER_OF_ATTORNEY):
+- grantor_name ← ضعه في asset_owner وفي parties كموكّل
+- agent_name ← ضعه في parties كوكيل
+- poa_type, granted_powers, poa_full_text, has_substitution_right
+- poa_date, poa_expiry
+
+من السجل التجاري (COMMERCIAL_REGISTRATION):
+- authorized_signatories ← ضعهم في entity_information.registered_authorities
+
+من الهوية الشخصية/جواز السفر:
+- name_en, id_number, citizenship ← ضعهم في parties
+
+إذا وجدت grantor_name في أي مستند توكيل → يجب أن يظهر في:
+1. parties[] كطرف بدور "موكّل"
+2. poa_details.asset_owner
+3. extraction_diagnostics.grantor_name_found = true
+
+---
+
 أنشئ موجزاً قانونياً شاملاً باستخراج جميع الحقائق. استخدم هذا الهيكل:
 
 ⚠️ تنبيه صارم: جميع القيم النصية يجب أن تكون بالعربية فقط. لا تستخدم أي كلمات إنجليزية في القيم. مفاتيح JSON فقط تبقى بالإنجليزية.
@@ -226,25 +248,17 @@ ANALYSIS_PROMPT_TEMPLATE_AR = """استخرج ونظّم جميع الحقائق
 }}
 
 تعليمات:
-1. استخرج كل حقيقة - الأسماء، التواريخ، الأرقام، الصلاحيات
-2. اقتبس النص الحرفي من المستندات حيثما كان ذلك مناسباً
-3. قارن ما تقوله المصادر المختلفة عن نفس الحقيقة
-4. أنشئ أسئلة لأي قضايا قانونية تحتاج للبحث
-5. لاحظ أي معلومات ناقصة
-6. ⚠️ جميع القيم النصية يجب أن تكون بالعربية فقط. لا تكتب أي كلمة إنجليزية في القيم.
-
-⚠️ تنبيه حرج - استخراج حقول المستندات:
-عند معالجة استخراجات المستندات (document_extractions)، انتبه بشكل خاص للحقول التالية في extracted_fields:
-- grantor_name (اسم الموكل): هذا هو مالك الأصل أو الموكل الأصلي في التوكيل
-- agent_name (اسم الوكيل): الشخص الذي يُمنح الصلاحيات
-- owner_name (اسم المالك): مالك الأصل أو المنشأة
-- poa_type (نوع التوكيل): عام أو خاص
-- granted_powers (الصلاحيات الممنوحة): قائمة الصلاحيات
-- poa_full_text (نص التوكيل الكامل): النص الكامل للتوكيل
+1. ابدأ بفحص document_extractions واستخرج grantor_name و agent_name أولاً
+2. استخرج كل حقيقة - الأسماء، التواريخ، الأرقام، الصلاحيات
+3. اقتبس النص الحرفي من المستندات حيثما كان ذلك مناسباً
+4. قارن ما تقوله المصادر المختلفة عن نفس الحقيقة
+5. أنشئ أسئلة لأي قضايا قانونية تحتاج للبحث
+6. لاحظ أي معلومات ناقصة
+7. ⚠️ جميع القيم النصية يجب أن تكون بالعربية فقط
 
 ⚠️ ربط التوكيلات:
-إذا وجدت توكيلاً سابقاً (upstream POA) في المرفقات:
-- استخرج تفاصيله كاملة
+إذا وجدت أكثر من توكيل في المرفقات (upstream POA):
+- استخرج تفاصيله كاملة في قسم upstream_poa
 - حدد العلاقة بين الموكل في التوكيل السابق والطرف الحالي
 - تحقق من أن صلاحيات التوكيل الجديد لا تتجاوز صلاحيات التوكيل السابق
 
@@ -261,6 +275,28 @@ ANALYSIS_PROMPT_TEMPLATE_EN = """Extract and organize all facts from the followi
 
 ## Additional Context:
 {additional_context}
+
+---
+
+⚠️ CRITICAL FIRST STEP - Extract Fields from Documents:
+Before creating the brief, scan document_extractions above and extract these fields from extracted_fields:
+
+From POA documents (POWER_OF_ATTORNEY):
+- grantor_name → Put in asset_owner AND in parties as Grantor
+- agent_name → Put in parties as Agent
+- poa_type, granted_powers, poa_full_text, has_substitution_right
+- poa_date, poa_expiry
+
+From Commercial Registration (COMMERCIAL_REGISTRATION):
+- authorized_signatories → Put in entity_information.registered_authorities
+
+From Personal ID/Passport:
+- name_en, id_number, citizenship → Put in parties
+
+If you find grantor_name in any POA document → it MUST appear in:
+1. parties[] as a party with role "Grantor"
+2. poa_details.asset_owner
+3. extraction_diagnostics.grantor_name_found = true
 
 ---
 
@@ -357,25 +393,17 @@ Create a comprehensive Legal Brief by extracting all facts. Use this structure:
 }}
 
 Instructions:
-1. Extract every fact - names, dates, numbers, powers
-2. Quote literal text from documents where appropriate
-3. Compare what different sources say about the same fact
-4. Create questions for any legal issues that need research
-5. Note any missing information
-6. ⚠️ All text values must be in English only. Do not write any Arabic words in values.
-
-⚠️ CRITICAL - Document Field Extraction:
-When processing document_extractions, pay special attention to these fields in extracted_fields:
-- grantor_name: This is the asset owner or original principal in the POA
-- agent_name: The person being granted powers
-- owner_name: The owner of the asset or establishment
-- poa_type: General or Special
-- granted_powers: List of powers being granted
-- poa_full_text: Full text of the POA
+1. START by scanning document_extractions and extract grantor_name & agent_name FIRST
+2. Extract every fact - names, dates, numbers, powers
+3. Quote literal text from documents where appropriate
+4. Compare what different sources say about the same fact
+5. Create questions for any legal issues that need research
+6. Note any missing information
+7. ⚠️ All text values must be in English only
 
 ⚠️ POA Chain Linking:
-If you find an upstream POA (existing POA) in the attachments:
-- Extract its complete details
+If you find multiple POAs in attachments (upstream POA):
+- Extract its complete details into the upstream_poa section
 - Identify the relationship between the upstream POA's grantor and the current party
 - Verify that the new POA's powers don't exceed the upstream POA's powers
 - Flag any scope violations where downstream POA tries to grant broader powers
