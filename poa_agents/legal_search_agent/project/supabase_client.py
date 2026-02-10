@@ -256,9 +256,12 @@ class LegalSearchSupabaseClient:
 
         try:
             # Convert dataclass to dict for storage
+            # Only use application_id if it's a valid UUID (not placeholder values)
+            app_id = artifact.application_id
+            valid_app_id = app_id if app_id and app_id not in ("unknown", "direct_input") else None
             row = {
                 "artifact_id": artifact.artifact_id,
-                "application_id": artifact.application_id if artifact.application_id != "unknown" else None,
+                "application_id": valid_app_id,
                 "legal_brief": artifact.legal_brief,
                 "decomposed_issues": artifact.decomposed_issues,
                 "config": {
