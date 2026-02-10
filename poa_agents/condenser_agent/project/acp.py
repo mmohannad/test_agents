@@ -175,7 +175,18 @@ ANALYSIS_PROMPT_TEMPLATE_AR = """استخرج ونظّم جميع الحقائق
         "poa_text_en": "النص الكامل بالإنجليزية إذا توفر",
         "powers_granted": ["كل صلاحية على حدة بالعربية"],
         "duration": "المدة بالعربية مثل: سنة واحدة أو غير محدد",
-        "substitution_allowed": true
+        "substitution_allowed": true,
+        "asset_owner": "اسم المالك الأصلي للأصل أو الحق (من grantor_name أو owner_name في المستندات)"
+    }},
+    "upstream_poa": {{
+        "exists": true,
+        "grantor_name": "اسم الموكل في التوكيل السابق",
+        "agent_name": "اسم الوكيل في التوكيل السابق (يجب أن يكون هو الموكل الحالي)",
+        "powers_granted": ["الصلاحيات الممنوحة في التوكيل السابق"],
+        "poa_date": "تاريخ التوكيل السابق",
+        "poa_expiry": "تاريخ انتهاء التوكيل السابق",
+        "has_substitution_right": true,
+        "scope_comparison": "مقارنة: هل صلاحيات التوكيل الجديد ضمن نطاق التوكيل السابق؟"
     }},
     "evidence_summary": [
         {{
@@ -203,6 +214,14 @@ ANALYSIS_PROMPT_TEMPLATE_AR = """استخرج ونظّم جميع الحقائق
         }}
     ],
     "missing_information": ["المعلومات الناقصة بالعربية"],
+    "extraction_diagnostics": {{
+        "grantor_name_found": true,
+        "grantor_name_source": "من حقل grantor_name في مستند التوكيل",
+        "asset_owner_identified": true,
+        "asset_owner_source": "من grantor_name أو owner_name",
+        "upstream_poa_detected": false,
+        "warnings": ["أي تحذيرات عن حقول مفقودة أو غير متطابقة"]
+    }},
     "extraction_confidence": 0.95
 }}
 
@@ -213,6 +232,21 @@ ANALYSIS_PROMPT_TEMPLATE_AR = """استخرج ونظّم جميع الحقائق
 4. أنشئ أسئلة لأي قضايا قانونية تحتاج للبحث
 5. لاحظ أي معلومات ناقصة
 6. ⚠️ جميع القيم النصية يجب أن تكون بالعربية فقط. لا تكتب أي كلمة إنجليزية في القيم.
+
+⚠️ تنبيه حرج - استخراج حقول المستندات:
+عند معالجة استخراجات المستندات (document_extractions)، انتبه بشكل خاص للحقول التالية في extracted_fields:
+- grantor_name (اسم الموكل): هذا هو مالك الأصل أو الموكل الأصلي في التوكيل
+- agent_name (اسم الوكيل): الشخص الذي يُمنح الصلاحيات
+- owner_name (اسم المالك): مالك الأصل أو المنشأة
+- poa_type (نوع التوكيل): عام أو خاص
+- granted_powers (الصلاحيات الممنوحة): قائمة الصلاحيات
+- poa_full_text (نص التوكيل الكامل): النص الكامل للتوكيل
+
+⚠️ ربط التوكيلات:
+إذا وجدت توكيلاً سابقاً (upstream POA) في المرفقات:
+- استخرج تفاصيله كاملة
+- حدد العلاقة بين الموكل في التوكيل السابق والطرف الحالي
+- تحقق من أن صلاحيات التوكيل الجديد لا تتجاوز صلاحيات التوكيل السابق
 
 أعد فقط كائن JSON."""
 
@@ -272,7 +306,18 @@ Create a comprehensive Legal Brief by extracting all facts. Use this structure:
         "poa_text_en": "Full English text if available",
         "powers_granted": ["Each power separately in English"],
         "duration": "Duration e.g.: one year or indefinite",
-        "substitution_allowed": true
+        "substitution_allowed": true,
+        "asset_owner": "Name of the original asset/right owner (from grantor_name or owner_name in documents)"
+    }},
+    "upstream_poa": {{
+        "exists": true,
+        "grantor_name": "Name of grantor in the upstream POA",
+        "agent_name": "Name of agent in upstream POA (should be the current grantor)",
+        "powers_granted": ["Powers granted in the upstream POA"],
+        "poa_date": "Date of the upstream POA",
+        "poa_expiry": "Expiry date of the upstream POA",
+        "has_substitution_right": true,
+        "scope_comparison": "Comparison: Are the new POA powers within the scope of the upstream POA?"
     }},
     "evidence_summary": [
         {{
@@ -300,6 +345,14 @@ Create a comprehensive Legal Brief by extracting all facts. Use this structure:
         }}
     ],
     "missing_information": ["Missing information in English"],
+    "extraction_diagnostics": {{
+        "grantor_name_found": true,
+        "grantor_name_source": "From grantor_name field in POA document",
+        "asset_owner_identified": true,
+        "asset_owner_source": "From grantor_name or owner_name",
+        "upstream_poa_detected": false,
+        "warnings": ["Any warnings about missing or mismatched fields"]
+    }},
     "extraction_confidence": 0.95
 }}
 
@@ -310,6 +363,22 @@ Instructions:
 4. Create questions for any legal issues that need research
 5. Note any missing information
 6. ⚠️ All text values must be in English only. Do not write any Arabic words in values.
+
+⚠️ CRITICAL - Document Field Extraction:
+When processing document_extractions, pay special attention to these fields in extracted_fields:
+- grantor_name: This is the asset owner or original principal in the POA
+- agent_name: The person being granted powers
+- owner_name: The owner of the asset or establishment
+- poa_type: General or Special
+- granted_powers: List of powers being granted
+- poa_full_text: Full text of the POA
+
+⚠️ POA Chain Linking:
+If you find an upstream POA (existing POA) in the attachments:
+- Extract its complete details
+- Identify the relationship between the upstream POA's grantor and the current party
+- Verify that the new POA's powers don't exceed the upstream POA's powers
+- Flag any scope violations where downstream POA tries to grant broader powers
 
 Return ONLY a JSON object."""
 
