@@ -106,11 +106,13 @@ def article_result_to_dict(article: ArticleResult) -> dict:
     """Convert ArticleResult to dict format expected by synthesizer."""
     return {
         "article_number": article.article_number,
+        "law_id": article.law_id,
         "text_arabic": article.text_arabic,
         "text_english": article.text_english,
         "text_ar": article.text_arabic,  # Alias for compatibility
         "text_en": article.text_english,  # Alias for compatibility
         "hierarchy_path": article.hierarchy_path,
+        "citation": article.citation,  # Rich citation info from poa_articles
         "similarity": article.similarity,
         "found_by_query": article.found_by_query,
         "found_in_iteration": article.found_in_iteration,

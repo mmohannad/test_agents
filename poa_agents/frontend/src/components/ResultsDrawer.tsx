@@ -128,9 +128,21 @@ interface IssueAnalysis {
   concerns?: string[];
 }
 
+interface CitationInfo {
+  law_id?: number;
+  law_year?: number;
+  law_number?: number;
+  article_url?: string;
+  law_name_ar?: string;
+  law_name_en?: string;
+  formatted_ar?: string;
+  formatted_en?: string;
+}
+
 interface Citation {
   citation_id?: string;
   article_number?: number;
+  law_id?: number;
   law_name?: string;
   chapter?: string;
   text_en?: string;
@@ -140,6 +152,11 @@ interface Citation {
   quoted_text?: string;
   relevance?: string;
   similarity_score?: number;
+  similarity?: number;
+  citation?: CitationInfo;  // Rich citation from poa_articles table
+  hierarchy_path?: Record<string, unknown>;
+  found_by_query?: string;
+  is_cross_reference?: boolean;
 }
 
 interface RetrievalMetrics {
@@ -1101,9 +1118,17 @@ function StringListSection({
 }
 
 function CitationsSection({ opinion }: { opinion: LegalOpinion }) {
-  const { t } = useLocale();
+  const { locale, t } = useLocale();
   const citations = opinion.all_citations ?? opinion.citations ?? [];
   if (citations.length === 0) return null;
+
+  // Group citations by law for better organization
+  const groupedByLaw: Record<string, Citation[]> = {};
+  for (const c of citations) {
+    const lawName = c.citation?.law_name_ar ?? c.citation?.law_name_en ?? c.law_name ?? t("resultsDrawer.unknownLaw");
+    if (!groupedByLaw[lawName]) groupedByLaw[lawName] = [];
+    groupedByLaw[lawName].push(c);
+  }
 
   return (
     <Section
@@ -1111,41 +1136,97 @@ function CitationsSection({ opinion }: { opinion: LegalOpinion }) {
       badge={
         <span className="text-[10px] text-gray-600 font-normal">
           {citations.length} {citations.length === 1 ? t("resultsDrawer.article") : t("resultsDrawer.articlesCount")}
+          {Object.keys(groupedByLaw).length > 1 && ` • ${Object.keys(groupedByLaw).length} ${t("resultsDrawer.laws")}`}
         </span>
       }
     >
-      <div className="space-y-2">
-        {citations.map((c, i) => (
-          <div key={i} className="bg-gray-900/50 rounded p-3">
-            <div className="flex items-center justify-between mb-1">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-gray-200">
-                  {t("resultsDrawer.article")} {c.article_number}
-                </span>
-                {c.law_name && (
-                  <span className="text-[10px] text-gray-500 italic">{c.law_name}</span>
-                )}
-              </div>
-              {c.similarity_score != null && (
-                <span className="text-[10px] text-gray-500">
-                  {t("resultsDrawer.similarity")}: {(c.similarity_score * 100).toFixed(0)}%
-                </span>
-              )}
+      <div className="space-y-4">
+        {Object.entries(groupedByLaw).map(([lawName, lawCitations]) => (
+          <div key={lawName} className="space-y-2">
+            {/* Law header */}
+            <div className="flex items-center gap-2 pb-1 border-b border-gray-800">
+              <span className="text-xs font-semibold text-blue-400" dir="auto">{lawName}</span>
+              <span className="text-[10px] text-gray-600">({lawCitations.length})</span>
             </div>
-            {(c.quoted_text || c.text_ar || c.text_arabic || c.text_en || c.text_english) && (() => {
-              const displayText = c.quoted_text || c.text_ar || c.text_arabic || c.text_en || c.text_english || "";
-              // Arabic text if any Arabic field is used
-              const isArabic = !!(c.text_ar || c.text_arabic || (!c.text_en && !c.text_english && c.quoted_text));
+
+            {/* Articles under this law */}
+            {lawCitations.map((c, i) => {
+              const citationInfo = c.citation;
+              const similarity = c.similarity ?? c.similarity_score;
+              const formattedCitation = locale === "en"
+                ? citationInfo?.formatted_en
+                : citationInfo?.formatted_ar;
+
               return (
-                <p className="text-[11px] text-gray-400 leading-relaxed" dir={isArabic ? "rtl" : "ltr"}>
-                  {displayText.slice(0, 300)}
-                  {displayText.length > 300 ? "..." : ""}
-                </p>
+                <div key={i} className="bg-gray-900/50 rounded p-3">
+                  {/* Citation header */}
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="flex-1">
+                      {formattedCitation ? (
+                        <span className="text-xs font-semibold text-gray-200" dir="auto">
+                          {formattedCitation}
+                        </span>
+                      ) : (
+                        <span className="text-xs font-semibold text-gray-200">
+                          {t("resultsDrawer.article")} {c.article_number}
+                        </span>
+                      )}
+                      {c.is_cross_reference && (
+                        <span className="ml-2 text-[9px] bg-purple-900/50 text-purple-300 px-1.5 py-0.5 rounded">
+                          {t("resultsDrawer.crossRef")}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {similarity != null && (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                          similarity >= 0.7 ? "bg-green-900/50 text-green-400" :
+                          similarity >= 0.5 ? "bg-yellow-900/50 text-yellow-400" :
+                          "bg-gray-800 text-gray-400"
+                        }`}>
+                          {(similarity * 100).toFixed(0)}%
+                        </span>
+                      )}
+                      {citationInfo?.article_url && (
+                        <a
+                          href={citationInfo.article_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[10px] text-blue-400 hover:text-blue-300 underline"
+                        >
+                          {t("resultsDrawer.source")}
+                        </a>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Article text */}
+                  {(c.text_arabic || c.text_ar || c.text_english || c.text_en) && (() => {
+                    const textAr = c.text_arabic || c.text_ar || "";
+                    const textEn = c.text_english || c.text_en || "";
+                    const displayText = locale === "en" && textEn ? textEn : textAr || textEn;
+                    const isArabic = displayText === textAr && !!textAr;
+
+                    return (
+                      <p
+                        className="text-[11px] text-gray-400 leading-relaxed bg-gray-950/50 rounded p-2"
+                        dir={isArabic ? "rtl" : "ltr"}
+                      >
+                        {displayText.slice(0, 400)}
+                        {displayText.length > 400 ? "..." : ""}
+                      </p>
+                    );
+                  })()}
+
+                  {/* Relevance note if present */}
+                  {c.relevance && (
+                    <p className="text-[10px] text-gray-500 mt-2 italic border-l-2 border-gray-700 pl-2">
+                      {c.relevance}
+                    </p>
+                  )}
+                </div>
               );
-            })()}
-            {c.relevance && (
-              <p className="text-[10px] text-gray-500 mt-1 italic">{c.relevance}</p>
-            )}
+            })}
           </div>
         ))}
       </div>
