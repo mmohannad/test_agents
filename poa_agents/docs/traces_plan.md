@@ -452,91 +452,289 @@ Re-ingest exported JSON:
 
 ## Trace Collection
 
-### Integration Points
+### Strategy: Automatic Client Instrumentation
 
-**1. Condenser Agent:**
-```python
-# In acp.py handle_message_send
-async def handle_message_send(params):
-    trace = TraceCollector.start_trace(
-        agent_name="condenser",
-        application_id=application_id
-    )
+Rather than manually wrapping every call site, we instrument the shared clients that all agents use. This captures prompts, tool calls, and results automatically.
 
-    with trace.span("parse_input", type="internal"):
-        input_data = json.loads(user_message)
+**Key insight:** All LLM calls flow through `LLMClient.chat()`, all DB calls flow through `SupabaseClient.*`. Instrument these once, capture everything.
 
-    with trace.span("llm_analysis", type="llm_call") as span:
-        response = await llm.chat(prompt, system_message)
-        span.set_attributes({
-            "model": "gpt-4o",
-            "input_tokens": response.usage.input,
-            "output_tokens": response.usage.output
-        })
-
-    trace.end(status="success", output=legal_brief)
-```
-
-**2. Legal Search Agent:**
-```python
-# In acp.py handle_message_send
-async def handle_message_send(params):
-    trace = TraceCollector.start_trace(
-        agent_name="legal_search",
-        application_id=application_id
-    )
-
-    with trace.span("decompose", type="tool_call"):
-        issues = await decomposer.decompose(legal_brief, locale)
-
-    with trace.span("retrieval", type="retrieval") as retrieval_span:
-        for iteration in range(max_iterations):
-            with retrieval_span.child(f"iteration_{iteration}") as iter_span:
-                # HyDE generation
-                with iter_span.child("hyde", type="llm_call"):
-                    hypotheticals = await hyde.generate(...)
-
-                # Embedding
-                with iter_span.child("embed", type="embedding"):
-                    vectors = await embed(hypotheticals)
-
-                # Search
-                with iter_span.child("search", type="retrieval"):
-                    results = await supabase.semantic_search(vectors)
-
-    with trace.span("synthesize", type="tool_call"):
-        opinion = await synthesizer.synthesize(...)
-
-    trace.end(status="success", output=opinion)
-```
-
-### TraceCollector API
+### 1. TraceContext (Thread-Local State)
 
 ```python
-class TraceCollector:
-    @classmethod
-    def start_trace(cls, agent_name: str, **metadata) -> Trace:
-        """Start a new trace, returns context manager."""
+# shared/tracing/context.py
+from contextvars import ContextVar
+from typing import Optional
+import time
+import uuid
 
-    def span(self, name: str, type: str) -> Span:
-        """Create a child span of the current span."""
+_current_trace: ContextVar[Optional["Trace"]] = ContextVar("current_trace", default=None)
+_current_span: ContextVar[Optional["Span"]] = ContextVar("current_span", default=None)
 
-    def event(self, kind: str, payload: dict):
-        """Log an event in the current span."""
+def current_trace() -> Optional["Trace"]:
+    return _current_trace.get()
+
+def current_span() -> Optional["Span"]:
+    return _current_span.get()
+
+class Trace:
+    def __init__(self, agent_name: str, **metadata):
+        self.id = uuid.uuid4()
+        self.trace_id = f"tr_{time.strftime('%Y%m%d')}_{agent_name}_{uuid.uuid4().hex[:8]}"
+        self.agent_name = agent_name
+        self.metadata = metadata
+        self.start_time = time.time()
+        self.spans: list[Span] = []
+        self.status = "running"
+
+    def __enter__(self):
+        _current_trace.set(self)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.end(status="error" if exc_type else "success")
+        _current_trace.set(None)
+
+    def span(self, name: str, type: str) -> "Span":
+        return Span(trace=self, name=name, type=type, parent=current_span())
 
     def end(self, status: str, output: dict = None):
-        """End the trace and flush to storage."""
-
-class Span:
-    def set_attributes(self, attrs: dict):
-        """Set span attributes."""
-
-    def child(self, name: str, **kwargs) -> Span:
-        """Create a child span."""
-
-    def event(self, kind: str, payload: dict):
-        """Log an event in this span."""
+        self.status = status
+        self.end_time = time.time()
+        self.output_snapshot = _truncate_payload(output) if output else None
+        _flush_to_supabase(self)  # Async save
 ```
+
+### 2. Instrumented LLM Client
+
+```python
+# shared/tracing/instrumented_llm.py
+from .context import current_trace, current_span
+
+class InstrumentedLLMClient:
+    """Wraps any LLM client to automatically capture prompts and responses."""
+
+    def __init__(self, base_client, model_name: str = "gpt-4o"):
+        self._client = base_client
+        self.model_name = model_name
+
+    async def chat(
+        self,
+        user_message: str,
+        system_message: str = "",
+        temperature: float = 0.7,
+        **kwargs
+    ) -> str:
+        trace = current_trace()
+        parent = current_span()
+
+        # Create span for this LLM call
+        span = Span(
+            trace=trace,
+            name=f"llm_{self.model_name}",
+            type="llm_call",
+            parent=parent
+        )
+
+        with span:
+            # Record input (truncated for storage)
+            span.event("prompt", {
+                "system": system_message[:2000],
+                "user": user_message[:5000],
+                "model": self.model_name,
+                "temperature": temperature,
+            })
+
+            # Make the actual call
+            start = time.time()
+            response = await self._client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": user_message},
+                ],
+                temperature=temperature,
+                **kwargs
+            )
+
+            # Record output
+            content = response.choices[0].message.content
+            span.set_attributes({
+                "duration_ms": int((time.time() - start) * 1000),
+                "input_tokens": response.usage.prompt_tokens,
+                "output_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens,
+                "finish_reason": response.choices[0].finish_reason,
+            })
+            span.event("response", {
+                "content": content[:5000],
+                "truncated": len(content) > 5000,
+            })
+
+            return content
+```
+
+### 3. Instrumented Supabase Client
+
+```python
+# shared/tracing/instrumented_supabase.py
+from .context import current_trace, current_span
+
+class InstrumentedSupabaseClient:
+    """Wraps Supabase client to capture queries and results."""
+
+    def __init__(self, base_client):
+        self._client = base_client
+
+    def semantic_search(
+        self,
+        query_embedding: list[float],
+        language: str = "arabic",
+        limit: int = 10,
+        threshold: float = 0.3,
+    ) -> list[dict]:
+        trace = current_trace()
+
+        span = Span(
+            trace=trace,
+            name="semantic_search",
+            type="retrieval",
+            parent=current_span()
+        )
+
+        with span:
+            span.event("retrieval_query", {
+                "language": language,
+                "limit": limit,
+                "threshold": threshold,
+                "embedding_dim": len(query_embedding),
+            })
+
+            start = time.time()
+            results = self._client.rpc(
+                "match_poa_articles",
+                {"query_embedding": query_embedding, ...}
+            ).execute()
+
+            span.set_attributes({
+                "duration_ms": int((time.time() - start) * 1000),
+                "result_count": len(results.data),
+                "top_similarity": results.data[0]["similarity"] if results.data else 0,
+                "avg_similarity": sum(r["similarity"] for r in results.data) / len(results.data) if results.data else 0,
+            })
+            span.event("retrieval_result", {
+                "articles": [
+                    {"article_number": r["article_number"], "similarity": r["similarity"]}
+                    for r in results.data[:10]
+                ],
+            })
+
+            return results.data
+```
+
+### 4. Instrumented Embedding Client
+
+```python
+# shared/tracing/instrumented_embeddings.py
+class InstrumentedEmbeddingClient:
+    """Wraps embedding client to capture input/output."""
+
+    async def embed(self, texts: list[str], model: str = "text-embedding-3-small") -> list[list[float]]:
+        span = Span(
+            trace=current_trace(),
+            name=f"embed_{model}",
+            type="embedding",
+            parent=current_span()
+        )
+
+        with span:
+            span.event("embed_input", {
+                "text_count": len(texts),
+                "total_chars": sum(len(t) for t in texts),
+                "sample": texts[0][:500] if texts else "",
+            })
+
+            start = time.time()
+            response = await self._client.embeddings.create(input=texts, model=model)
+
+            span.set_attributes({
+                "duration_ms": int((time.time() - start) * 1000),
+                "model": model,
+                "dimensions": len(response.data[0].embedding),
+                "total_tokens": response.usage.total_tokens,
+            })
+
+            return [d.embedding for d in response.data]
+```
+
+### 5. Agent Handler Integration
+
+```python
+# In condenser_agent/project/acp.py
+from shared.tracing import Trace, InstrumentedLLMClient
+
+@acp.on_message_send
+async def handle_message_send(params):
+    # Start trace at handler entry
+    with Trace(agent_name="condenser", application_id=application_id) as trace:
+        trace.event("input", {"payload_size": len(user_message)})
+
+        # Use instrumented client - all calls auto-traced
+        llm = InstrumentedLLMClient(get_raw_llm_client())
+
+        # ... rest of handler ...
+        # Every llm.chat() call automatically creates spans with prompts/responses
+
+        response = await llm.chat(user_message=prompt, system_message=system_prompt)
+
+        trace.set_output(legal_brief)
+    # Trace auto-saved on context exit
+```
+
+```python
+# In legal_search_agent/project/acp.py
+from shared.tracing import Trace, InstrumentedLLMClient, InstrumentedSupabaseClient
+
+@acp.on_message_send
+async def handle_message_send(params):
+    with Trace(agent_name="legal_search", application_id=application_id) as trace:
+        # Wrap clients - all nested calls auto-traced
+        llm = InstrumentedLLMClient(get_raw_llm_client())
+        supabase = InstrumentedSupabaseClient(get_raw_supabase_client())
+        embeddings = InstrumentedEmbeddingClient(get_raw_embedding_client())
+
+        # Pass instrumented clients to components
+        decomposer = Decomposer(llm)
+        retrieval_agent = RetrievalAgent(llm, supabase, embeddings)
+        synthesizer = Synthesizer(llm)
+
+        # All calls now auto-traced with full prompt/response capture
+        with trace.span("decompose", type="tool_call"):
+            issues = await decomposer.decompose(legal_brief, locale)
+
+        with trace.span("retrieval", type="retrieval"):
+            articles = await retrieval_agent.retrieve(issues)
+
+        with trace.span("synthesize", type="tool_call"):
+            opinion = await synthesizer.synthesize(...)
+```
+
+### What Gets Captured Automatically
+
+| Component | Captured Data |
+|-----------|---------------|
+| LLM calls | system_prompt, user_prompt, response, tokens, latency, model |
+| Embeddings | input texts, dimensions, tokens, latency |
+| Semantic search | query params, result count, similarities, top articles |
+| HyDE generation | hypothetical texts generated, iteration number |
+| Tool calls | input args, output, duration |
+
+### Payload Truncation Rules
+
+To avoid bloating storage:
+- Prompts: max 5000 chars (store hash of full if truncated)
+- Responses: max 5000 chars
+- Embeddings: don't store vectors, just metadata
+- Search results: store top 10 article numbers + similarities
 
 ---
 
@@ -666,34 +864,226 @@ POST   /api/comments/:comment_id/resolve    Resolve comment
 
 ## Implementation Phases
 
-### Phase 1: Data Model & Collection (Week 1)
-- [ ] Create Supabase migrations for all tables
-- [ ] Implement TraceCollector Python class
-- [ ] Instrument condenser_agent with basic tracing
-- [ ] Instrument legal_search_agent with full tracing
-- [ ] Verify traces are being saved
+### Phase 1: Database Schema
 
-### Phase 2: Trace Viewer UI (Week 2)
-- [ ] TraceListPage with filters and pagination
-- [ ] TraceDetailPage with timeline visualization
-- [ ] Span detail panel
-- [ ] Event log view
-- [ ] Connect to Supabase queries
+**1.1 Create Supabase migrations**
+- [ ] Create `traces` table with all columns and indexes
+- [ ] Create `spans` table with FK to traces + self-referential parent_id
+- [ ] Create `events` table with FKs to traces and spans
+- [ ] Create `comments` table with polymorphic target FKs + CHECK constraint
+- [ ] Create `comment_tags` table and seed default tags
+- [ ] Add FK constraint from `traces.root_span_id` → `spans.id`
+- [ ] Test all constraints (CASCADE deletes, CHECK constraint validation)
 
-### Phase 3: Comment System (Week 3)
-- [ ] Comment data model and API
-- [ ] CommentPanel component
-- [ ] Inline comment placement (trace/span/event)
-- [ ] Tag selector with predefined vocabulary
-- [ ] Rating input
-- [ ] Comment threading (replies)
+**1.2 Create DB helper functions**
+- [ ] Create RPC function `get_trace_with_children(trace_id UUID)` — returns trace + all spans + all events in one call
+- [ ] Create RPC function `get_trace_comments(trace_id UUID)` — returns all comments with replies threaded
+- [ ] Add Row Level Security policies (if multi-tenancy needed)
 
-### Phase 4: Export & Polish (Week 4)
-- [ ] JSON export implementation
-- [ ] CSV export (flattened)
-- [ ] Export by filter/date range
-- [ ] Import functionality (optional)
-- [ ] UI polish and testing
+---
+
+### Phase 2: Python Tracing Library
+
+**2.1 Core tracing infrastructure**
+- [ ] Create `shared/tracing/` directory structure
+- [ ] Implement `context.py` with `ContextVar` for `_current_trace` and `_current_span`
+- [ ] Implement `Trace` class with `__enter__`/`__exit__`, span creation, and auto-flush
+- [ ] Implement `Span` class with timing, attributes, events, and status tracking
+- [ ] Implement `Event` class for fine-grained logging within spans
+- [ ] Implement ID generation functions (`generate_trace_id`, `generate_span_id`, `generate_event_id`)
+
+**2.2 Database persistence**
+- [ ] Implement `_flush_to_supabase(trace)` — async batch insert of trace + spans + events
+- [ ] Add payload truncation helper (`_truncate_payload`) with configurable limits
+- [ ] Add error handling for DB write failures (log but don't crash agent)
+- [ ] Implement background flush queue to avoid blocking agent response
+
+**2.3 Instrumented clients**
+- [ ] Implement `InstrumentedLLMClient` wrapping OpenAI client
+  - [ ] Capture system_prompt, user_prompt (truncated)
+  - [ ] Capture response content (truncated)
+  - [ ] Capture token counts, latency, model, temperature
+- [ ] Implement `InstrumentedSupabaseClient` wrapping Supabase client
+  - [ ] Capture semantic search calls with query params + results
+  - [ ] Capture RPC calls with function name + args + result count
+- [ ] Implement `InstrumentedEmbeddingClient` wrapping embedding API
+  - [ ] Capture input text count, total chars, sample
+  - [ ] Capture dimensions, tokens, latency
+
+**2.4 Integrate into condenser_agent**
+- [ ] Import tracing in `condenser_agent/project/acp.py`
+- [ ] Wrap handler in `with Trace(agent_name="condenser", ...)`
+- [ ] Replace raw LLM client with `InstrumentedLLMClient`
+- [ ] Add manual spans for major steps (context loading, analysis, output formatting)
+- [ ] Test: verify traces appear in DB after agent run
+
+**2.5 Integrate into legal_search_agent**
+- [ ] Import tracing in `legal_search_agent/project/acp.py`
+- [ ] Wrap handler in `with Trace(agent_name="legal_search", ...)`
+- [ ] Replace clients in decomposer, HyDE generator, retrieval agent, coverage analyzer, synthesizer
+- [ ] Add spans for each pipeline stage (decompose, retrieval iterations, synthesize)
+- [ ] Test: verify full trace tree in DB after agent run
+
+---
+
+### Phase 3: Frontend - Trace List View
+
+**3.1 Create traces page structure**
+- [ ] Create `/traces` page route (`src/app/traces/page.tsx`)
+- [ ] Create `TraceListView` component
+- [ ] Create Supabase query hook `useTraces({ filters, pagination })`
+- [ ] Add navigation link to traces page in main layout
+
+**3.2 Implement filters**
+- [ ] Agent name dropdown filter (condenser, legal_search)
+- [ ] Status filter (success, error, running, timeout)
+- [ ] Date range picker
+- [ ] "Has comments" checkbox
+- [ ] "Min rating" slider
+- [ ] Tags multi-select
+- [ ] Wire filters to query params + Supabase query
+
+**3.3 Implement trace list**
+- [ ] `TraceCard` component showing: trace_id, agent, duration, status, comment count, avg rating, tags
+- [ ] Status chips with color coding
+- [ ] Relative time display ("2 hours ago")
+- [ ] Click to navigate to detail page
+- [ ] Pagination controls (limit/offset)
+
+---
+
+### Phase 4: Frontend - Trace Detail View
+
+**4.1 Create detail page structure**
+- [ ] Create `/traces/[traceId]` page route (`src/app/traces/[traceId]/page.tsx`)
+- [ ] Create Supabase query hook `useTraceDetail(traceId)` — fetches trace + spans + events
+- [ ] Create header showing trace metadata (id, agent, version, env, timing, status)
+- [ ] Add "Export JSON" button in header
+
+**4.2 Implement timeline visualization**
+- [ ] Calculate relative start times for all spans
+- [ ] Render horizontal bars proportional to duration
+- [ ] Nest child spans under parents (indentation)
+- [ ] Color code by span type (llm_call, retrieval, tool_call, etc.)
+- [ ] Hover tooltip showing span name, duration, status
+- [ ] Click span to select and show details
+
+**4.3 Implement span detail panel**
+- [ ] Side panel showing selected span details
+- [ ] Display all attributes in key-value format
+- [ ] List events within span chronologically
+- [ ] Expand/collapse for long payloads
+- [ ] JSON viewer for raw attributes
+- [ ] "Add Comment" button for selected span
+
+**4.4 Implement events log view**
+- [ ] Chronological list of all events in trace
+- [ ] Filter by event kind (user_msg, assistant_msg, tool_call, etc.)
+- [ ] Expand/collapse event payloads
+- [ ] Click event to highlight parent span in timeline
+- [ ] "Add Comment" button for events
+
+**4.5 Implement tabs**
+- [ ] Tab navigation: Timeline | Spans | Events | Comments | Raw JSON
+- [ ] Spans tab: flat list of all spans with search/filter
+- [ ] Raw JSON tab: full trace export preview
+- [ ] Comments tab count shows total comments
+
+---
+
+### Phase 5: Comment System
+
+**5.1 Comment data layer**
+- [ ] Create Supabase query hook `useComments(traceId)`
+- [ ] Create mutation hook `useCreateComment()`
+- [ ] Create mutation hook `useUpdateComment()`
+- [ ] Create mutation hook `useResolveComment()`
+- [ ] Create mutation hook `useDeleteComment()`
+
+**5.2 Comment display**
+- [ ] `CommentCard` component showing: author, timestamp, body, tags, rating
+- [ ] Markdown rendering for comment body
+- [ ] Tag chips with colors from `comment_tags` table
+- [ ] Star rating display
+- [ ] Reply button
+- [ ] Resolve button (shows resolved status)
+- [ ] Edit/Delete buttons (for own comments)
+
+**5.3 Comment panel in trace detail**
+- [ ] `CommentsPanel` component listing all comments
+- [ ] Group by target (trace-level, then by span/event)
+- [ ] Indicate comment target with breadcrumb ("span: decompose > llm_call")
+- [ ] Thread replies under parent comments
+- [ ] "Add Comment" button at top
+
+**5.4 Comment creation modal**
+- [ ] `CommentModal` component
+- [ ] Textarea with markdown preview
+- [ ] Tag selector (multi-select from predefined tags)
+- [ ] Rating input (1-5 stars, optional)
+- [ ] Show target context (what span/event being commented on)
+- [ ] Save and cancel buttons
+- [ ] Validation (body required)
+
+**5.5 Inline comment triggers**
+- [ ] "Add Comment" icon on trace header → opens modal with target_type="trace"
+- [ ] "Add Comment" icon on span row → opens modal with target_type="span"
+- [ ] "Add Comment" icon on event row → opens modal with target_type="event"
+- [ ] Comment count badges on spans/events that have comments
+
+---
+
+### Phase 6: Export System
+
+**6.1 JSON export**
+- [ ] Create `/api/traces/export` API route
+- [ ] Implement single trace export (trace + all spans + events + comments)
+- [ ] Implement batch export with filters
+- [ ] Implement date range export
+- [ ] Add `export_meta` with timestamp, filter, count, version
+- [ ] Stream large exports to avoid memory issues
+
+**6.2 Frontend export UI**
+- [ ] Export button on trace detail page → downloads single trace JSON
+- [ ] Export dropdown on trace list page with options:
+  - [ ] "Export current view" (applies current filters)
+  - [ ] "Export date range" (opens date picker)
+- [ ] Progress indicator for large exports
+- [ ] Download via blob URL
+
+**6.3 CSV export (optional)**
+- [ ] Flatten trace data to rows (one row per trace)
+- [ ] Include summary columns: trace_id, agent, start_time, duration, status, comment_count, avg_rating, tags
+- [ ] Option to include spans as separate CSV or as JSON column
+
+---
+
+### Phase 7: Polish & Testing
+
+**7.1 Error handling**
+- [ ] Handle DB query failures gracefully in UI
+- [ ] Loading skeletons for trace list and detail
+- [ ] Empty states (no traces, no comments)
+- [ ] Error boundaries for component crashes
+
+**7.2 Performance**
+- [ ] Add indexes for common query patterns
+- [ ] Lazy load events (fetch only when Events tab selected)
+- [ ] Virtual scroll for long span/event lists
+- [ ] Debounce filter inputs
+
+**7.3 Testing**
+- [ ] Test trace collection in dev environment
+- [ ] Verify all span types captured correctly
+- [ ] Test comment CRUD operations
+- [ ] Test export/import round-trip
+- [ ] Test edge cases: very long traces, traces with errors, traces with many comments
+
+**7.4 Documentation**
+- [ ] Add tracing setup instructions to agent README
+- [ ] Document payload truncation rules
+- [ ] Document comment tag vocabulary
+- [ ] Add troubleshooting guide for common issues
 
 ---
 
