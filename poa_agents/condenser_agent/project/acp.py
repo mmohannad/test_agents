@@ -33,6 +33,14 @@ if str(_parent_dir) not in sys.path:
 from project.supabase_client import CondenserSupabaseClient
 from project.llm_client import CondenserLLMClient
 
+# Import tracing
+try:
+    from shared.tracing import Trace, current_trace
+    TRACING_AVAILABLE = True
+except ImportError:
+    TRACING_AVAILABLE = False
+    Trace = None
+
 logger = make_logger(__name__)
 logger.info(f"Loaded environment from {env_path}")
 
@@ -432,18 +440,51 @@ async def handle_message_send(
 
     logger.info(f"Received message: {user_message[:200]}...")
 
+    # Parse input early to get application_id for tracing
     try:
-        # Parse input
-        try:
-            input_data = json.loads(user_message)
-        except json.JSONDecodeError:
-            # Maybe it's just an application ID
-            input_data = {"application_id": user_message.strip()}
+        input_data = json.loads(user_message)
+    except json.JSONDecodeError:
+        input_data = {"application_id": user_message.strip()}
 
+    application_id = input_data.get("application_id")
+
+    # Create trace context if tracing is available
+    trace_context = None
+    if TRACING_AVAILABLE and Trace:
+        trace_context = Trace(
+            agent_name="condenser",
+            application_id=application_id if application_id and application_id != "direct_input" else None,
+            metadata={
+                "locale": input_data.get("locale", "ar"),
+                "has_case_object": "case_object" in input_data,
+            }
+        )
+        trace_context.__enter__()
+        trace_context.set_input({"message_length": len(user_message), "application_id": application_id})
+
+    try:
+        result = await _handle_message_internal(input_data, application_id, user_message)
+
+        # Record output in trace
+        if trace_context:
+            trace_context.set_output({"status": "success"})
+            trace_context.__exit__(None, None, None)
+
+        return result
+
+    except Exception as e:
+        # Record error in trace
+        if trace_context:
+            trace_context.__exit__(type(e), e, e.__traceback__)
+        raise
+
+
+async def _handle_message_internal(input_data: dict, application_id: Optional[str], user_message: str):
+    """Internal handler logic, separated for tracing."""
+    try:
         supabase = get_supabase_client()
         llm = get_llm_client()
-
-        application_id = input_data.get("application_id")
+        trace = current_trace() if TRACING_AVAILABLE else None
         case_data = input_data.get("case_object")
         fact_sheet = input_data.get("fact_sheet")
         tier1_result = input_data.get("tier1_result")
@@ -452,23 +493,47 @@ async def handle_message_send(
         if application_id:
             logger.info(f"Loading application data for: {application_id}")
 
-            # Load application
-            application = supabase.get_application(application_id)
-            if not application:
-                return TextContent(
-                    author="agent",
-                    content=f"Application not found: {application_id}"
-                )
+            # Load application data with tracing
+            if trace:
+                with trace.span("load_application_data", type="db_query") as span:
+                    span.set_attribute("application_id", application_id)
 
-            # Load parties
-            parties = supabase.get_parties(application_id)
+                    # Load application
+                    application = supabase.get_application(application_id)
+                    if not application:
+                        span.set_attribute("error", "Application not found")
+                        return TextContent(
+                            author="agent",
+                            content=f"Application not found: {application_id}"
+                        )
 
-            # Load capacity proofs for parties
-            party_ids = [p["id"] for p in parties]
-            capacity_proofs = supabase.get_capacity_proofs(party_ids) if party_ids else []
+                    # Load parties
+                    parties = supabase.get_parties(application_id)
 
-            # Load document extractions
-            doc_extractions = supabase.get_document_extractions(application_id)
+                    # Load capacity proofs for parties
+                    party_ids = [p["id"] for p in parties]
+                    capacity_proofs = supabase.get_capacity_proofs(party_ids) if party_ids else []
+
+                    # Load document extractions
+                    doc_extractions = supabase.get_document_extractions(application_id)
+
+                    span.set_attributes({
+                        "parties_count": len(parties),
+                        "capacity_proofs_count": len(capacity_proofs),
+                        "doc_extractions_count": len(doc_extractions),
+                    })
+            else:
+                # Load without tracing
+                application = supabase.get_application(application_id)
+                if not application:
+                    return TextContent(
+                        author="agent",
+                        content=f"Application not found: {application_id}"
+                    )
+                parties = supabase.get_parties(application_id)
+                party_ids = [p["id"] for p in parties]
+                capacity_proofs = supabase.get_capacity_proofs(party_ids) if party_ids else []
+                doc_extractions = supabase.get_document_extractions(application_id)
 
             # Build case data from raw sources
             case_data = {
@@ -509,11 +574,30 @@ async def handle_message_send(
 
         logger.info(f"Generating Legal Brief with LLM (locale: {locale})...")
 
-        # Call LLM to generate the brief
-        response = await llm.chat(
-            user_message=prompt,
-            system_message=system_prompt
-        )
+        # Call LLM to generate the brief (with tracing if available)
+        if trace:
+            with trace.span("generate_legal_brief", type="llm_call") as span:
+                span.event("prompt", {
+                    "system_prompt_length": len(system_prompt),
+                    "user_prompt_length": len(prompt),
+                    "locale": locale,
+                })
+                response = await llm.chat(
+                    user_message=prompt,
+                    system_message=system_prompt
+                )
+                span.set_attributes({
+                    "response_length": len(response),
+                    "model": llm.model,
+                })
+                span.event("response", {
+                    "content_preview": response[:1000] if response else "",
+                })
+        else:
+            response = await llm.chat(
+                user_message=prompt,
+                system_message=system_prompt
+            )
 
         # Parse the response as JSON
         try:

@@ -40,6 +40,14 @@ from project.supabase_client import LegalSearchSupabaseClient
 from project.llm_client import LegalSearchLLMClient
 from project.models.retrieval_state import RetrievalConfig, ArticleResult
 
+# Import tracing
+try:
+    from shared.tracing import Trace, current_trace
+    TRACING_AVAILABLE = True
+except ImportError:
+    TRACING_AVAILABLE = False
+    Trace = None
+
 logger = make_logger(__name__)
 logger.info(f"Loaded environment from {env_path}")
 
@@ -177,26 +185,73 @@ async def handle_message_send(
 
     logger.info(f"Received message: {user_message[:200]}...")
 
+    # Parse input early to get application_id for tracing
     try:
-        # Parse input
-        try:
-            input_data = json.loads(user_message)
-        except json.JSONDecodeError:
-            input_data = {"application_id": user_message.strip()}
+        input_data = json.loads(user_message)
+    except json.JSONDecodeError:
+        input_data = {"application_id": user_message.strip()}
 
+    application_id = input_data.get("application_id")
+    locale = input_data.get("locale", "ar")
+
+    # Create trace context if tracing is available
+    trace_context = None
+    if TRACING_AVAILABLE and Trace:
+        trace_context = Trace(
+            agent_name="legal_search",
+            application_id=application_id if application_id and application_id != "direct_input" else None,
+            metadata={
+                "locale": locale,
+                "has_legal_brief": "legal_brief" in input_data,
+            }
+        )
+        trace_context.__enter__()
+        trace_context.set_input({"message_length": len(user_message), "application_id": application_id})
+
+    try:
+        result = await _handle_legal_search_internal(input_data, application_id, locale, user_message)
+
+        # Record output in trace
+        if trace_context:
+            trace_context.set_output({"status": "success"})
+            trace_context.__exit__(None, None, None)
+
+        return result
+
+    except Exception as e:
+        # Record error in trace
+        if trace_context:
+            trace_context.__exit__(type(e), e, e.__traceback__)
+        raise
+
+
+async def _handle_legal_search_internal(
+    input_data: dict,
+    application_id: Optional[str],
+    locale: str,
+    user_message: str
+):
+    """Internal handler logic, separated for tracing."""
+    try:
         supabase = get_supabase_client()
         decomposer = get_decomposer()
         retrieval_agent = get_retrieval_agent()
         synthesizer = get_synthesizer()
+        trace = current_trace() if TRACING_AVAILABLE else None
 
-        application_id = input_data.get("application_id")
         legal_brief = input_data.get("legal_brief")
-        locale = input_data.get("locale", "ar")  # Extract locale, default to "ar"
 
         # Load Legal Brief from Supabase if not provided
         if application_id and not legal_brief:
             logger.info(f"Loading Legal Brief for application: {application_id}")
-            brief_row = supabase.get_legal_brief(application_id)
+            if trace:
+                with trace.span("load_legal_brief", type="db_query") as span:
+                    span.set_attribute("application_id", application_id)
+                    brief_row = supabase.get_legal_brief(application_id)
+                    span.set_attribute("found", brief_row is not None)
+            else:
+                brief_row = supabase.get_legal_brief(application_id)
+
             if not brief_row:
                 return TextContent(
                     author="agent",
@@ -218,7 +273,17 @@ async def handle_message_send(
         # ========================================
         logger.info(f"Phase 1: Decomposing case into legal sub-issues (locale={locale})...")
 
-        issues = await decomposer.decompose(legal_brief, locale=locale)
+        if trace:
+            with trace.span("decomposition", type="tool_call") as span:
+                span.set_attribute("locale", locale)
+                issues = await decomposer.decompose(legal_brief, locale=locale)
+                span.set_attributes({
+                    "issues_count": len(issues),
+                    "issue_ids": [i.get("issue_id") for i in issues],
+                })
+        else:
+            issues = await decomposer.decompose(legal_brief, locale=locale)
+
         logger.info(f"Decomposed into {len(issues)} legal issues")
 
         # ========================================
@@ -226,12 +291,34 @@ async def handle_message_send(
         # ========================================
         logger.info("Phase 2: Agentic retrieval with HyDE and iterative refinement...")
 
-        # Run the agentic retrieval loop
-        article_results, retrieval_artifact = await retrieval_agent.retrieve(
-            issues=issues,
-            legal_brief=legal_brief,
-            application_id=application_id or "direct_input"
-        )
+        if trace:
+            with trace.span("agentic_retrieval", type="retrieval") as span:
+                span.set_attributes({
+                    "issues_count": len(issues),
+                    "hyde_enabled": True,
+                })
+                # Run the agentic retrieval loop
+                article_results, retrieval_artifact = await retrieval_agent.retrieve(
+                    issues=issues,
+                    legal_brief=legal_brief,
+                    application_id=application_id or "direct_input"
+                )
+                span.set_attributes({
+                    "iterations": retrieval_artifact.total_iterations,
+                    "articles_found": retrieval_artifact.total_articles,
+                    "stop_reason": retrieval_artifact.stop_reason,
+                    "coverage_score": retrieval_artifact.coverage_score,
+                    "avg_similarity": retrieval_artifact.avg_similarity,
+                    "llm_calls": retrieval_artifact.total_llm_calls,
+                    "embedding_calls": retrieval_artifact.total_embedding_calls,
+                    "latency_ms": retrieval_artifact.total_latency_ms,
+                })
+        else:
+            article_results, retrieval_artifact = await retrieval_agent.retrieve(
+                issues=issues,
+                legal_brief=legal_brief,
+                application_id=application_id or "direct_input"
+            )
 
         logger.info(f"Agentic retrieval complete:")
         logger.info(f"  - Iterations: {retrieval_artifact.total_iterations}")
@@ -271,13 +358,33 @@ async def handle_message_send(
         # ========================================
         logger.info(f"Phase 3: Synthesizing legal opinion (locale={locale})...")
 
-        opinion = await synthesizer.synthesize(
-            legal_brief=legal_brief,
-            issues=issues,
-            issue_evidence=issue_evidence,
-            all_articles=unique_articles,
-            locale=locale
-        )
+        if trace:
+            with trace.span("synthesis", type="tool_call") as span:
+                span.set_attributes({
+                    "locale": locale,
+                    "issues_count": len(issues),
+                    "articles_count": len(unique_articles),
+                })
+                opinion = await synthesizer.synthesize(
+                    legal_brief=legal_brief,
+                    issues=issues,
+                    issue_evidence=issue_evidence,
+                    all_articles=unique_articles,
+                    locale=locale
+                )
+                span.set_attributes({
+                    "finding": opinion.get("overall_finding"),
+                    "decision": opinion.get("decision_bucket"),
+                    "confidence": opinion.get("confidence_score"),
+                })
+        else:
+            opinion = await synthesizer.synthesize(
+                legal_brief=legal_brief,
+                issues=issues,
+                issue_evidence=issue_evidence,
+                all_articles=unique_articles,
+                locale=locale
+            )
 
         # Add metadata
         opinion["application_id"] = application_id or "direct_input"
