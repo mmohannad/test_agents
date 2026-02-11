@@ -45,12 +45,21 @@ A system to capture, view, and annotate agent execution traces. Enables quality 
 
 ## Data Model
 
+### Design Principle: UUID PKs for Relations, TEXT IDs for Display
+
+- **Internal relations** use UUID primary/foreign keys for performance and integrity
+- **External IDs** (`trace_id`, `span_id`, `event_id`) are TEXT UNIQUE for human-readable display/export
+- FKs always reference the UUID `id` column, never the TEXT external ID
+
 ### 1. `traces` — Root of each agent invocation
 
 ```sql
 CREATE TABLE traces (
+    -- Primary key (internal)
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    trace_id        TEXT UNIQUE NOT NULL,      -- External ID (e.g., "tr_20260211_abc123")
+
+    -- External ID (for display/export/API)
+    trace_id        TEXT UNIQUE NOT NULL,      -- e.g., "tr_20260211_abc123"
 
     -- Context
     session_id      TEXT,                       -- Groups related traces (e.g., same user session)
@@ -73,8 +82,8 @@ CREATE TABLE traces (
     status          TEXT NOT NULL DEFAULT 'running', -- "running", "success", "error", "timeout"
     error_summary   TEXT,                       -- Brief error description if failed
 
-    -- Structure
-    root_span_id    TEXT,                       -- Points to the root span
+    -- Structure (UUID refs, set after root span created)
+    root_span_id    UUID,                       -- Points to the root span (set after insert)
     span_count      INTEGER DEFAULT 0,
     event_count     INTEGER DEFAULT 0,
 
@@ -91,6 +100,7 @@ CREATE TABLE traces (
 );
 
 -- Indexes
+CREATE INDEX idx_traces_trace_id ON traces(trace_id);          -- For external ID lookups
 CREATE INDEX idx_traces_agent_name ON traces(agent_name);
 CREATE INDEX idx_traces_start_time ON traces(start_time DESC);
 CREATE INDEX idx_traces_status ON traces(status);
@@ -102,10 +112,15 @@ CREATE INDEX idx_traces_session_id ON traces(session_id);
 
 ```sql
 CREATE TABLE spans (
+    -- Primary key (internal)
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    span_id         TEXT UNIQUE NOT NULL,       -- External ID (e.g., "sp_abc123_001")
-    trace_id        TEXT NOT NULL REFERENCES traces(trace_id) ON DELETE CASCADE,
-    parent_span_id  TEXT,                       -- NULL for root span, references span_id
+
+    -- External ID (for display/export/API)
+    span_id         TEXT UNIQUE NOT NULL,       -- e.g., "sp_abc123_001"
+
+    -- Relations (UUID FKs for integrity + performance)
+    trace_db_id     UUID NOT NULL REFERENCES traces(id) ON DELETE CASCADE,
+    parent_id       UUID REFERENCES spans(id) ON DELETE CASCADE,  -- NULL for root span
 
     -- Identity
     name            TEXT NOT NULL,              -- "llm_chat", "semantic_search", "decompose"
@@ -128,10 +143,15 @@ CREATE TABLE spans (
 );
 
 -- Indexes
-CREATE INDEX idx_spans_trace_id ON spans(trace_id);
-CREATE INDEX idx_spans_parent_span_id ON spans(parent_span_id);
+CREATE INDEX idx_spans_span_id ON spans(span_id);              -- For external ID lookups
+CREATE INDEX idx_spans_trace_db_id ON spans(trace_db_id);
+CREATE INDEX idx_spans_parent_id ON spans(parent_id);
 CREATE INDEX idx_spans_type ON spans(type);
 CREATE INDEX idx_spans_start_time ON spans(start_time);
+
+-- Add FK from traces.root_span_id after spans table exists
+ALTER TABLE traces ADD CONSTRAINT fk_traces_root_span
+    FOREIGN KEY (root_span_id) REFERENCES spans(id) ON DELETE SET NULL;
 ```
 
 **Span Types & Expected Attributes:**
@@ -150,10 +170,15 @@ CREATE INDEX idx_spans_start_time ON spans(start_time);
 
 ```sql
 CREATE TABLE events (
+    -- Primary key (internal)
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    event_id        TEXT UNIQUE NOT NULL,       -- External ID
-    trace_id        TEXT NOT NULL REFERENCES traces(trace_id) ON DELETE CASCADE,
-    span_id         TEXT REFERENCES spans(span_id) ON DELETE CASCADE,
+
+    -- External ID (for display/export/API)
+    event_id        TEXT UNIQUE NOT NULL,       -- e.g., "ev_001x9y8_001"
+
+    -- Relations (UUID FKs)
+    trace_db_id     UUID NOT NULL REFERENCES traces(id) ON DELETE CASCADE,
+    span_db_id      UUID REFERENCES spans(id) ON DELETE CASCADE,  -- NULL if trace-level event
 
     -- Event details
     timestamp       TIMESTAMPTZ NOT NULL,
@@ -168,8 +193,9 @@ CREATE TABLE events (
 );
 
 -- Indexes
-CREATE INDEX idx_events_trace_id ON events(trace_id);
-CREATE INDEX idx_events_span_id ON events(span_id);
+CREATE INDEX idx_events_event_id ON events(event_id);          -- For external ID lookups
+CREATE INDEX idx_events_trace_db_id ON events(trace_db_id);
+CREATE INDEX idx_events_span_db_id ON events(span_db_id);
 CREATE INDEX idx_events_kind ON events(kind);
 CREATE INDEX idx_events_timestamp ON events(timestamp);
 ```
@@ -195,10 +221,10 @@ CREATE INDEX idx_events_timestamp ON events(timestamp);
 CREATE TABLE comments (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-    -- Target (polymorphic reference)
-    trace_id        TEXT NOT NULL REFERENCES traces(trace_id) ON DELETE CASCADE,
-    span_id         TEXT REFERENCES spans(span_id) ON DELETE SET NULL,
-    event_id        TEXT REFERENCES events(event_id) ON DELETE SET NULL,
+    -- Target (polymorphic reference using UUID FKs)
+    trace_db_id     UUID NOT NULL REFERENCES traces(id) ON DELETE CASCADE,
+    span_db_id      UUID REFERENCES spans(id) ON DELETE SET NULL,
+    event_db_id     UUID REFERENCES events(id) ON DELETE SET NULL,
     target_type     TEXT NOT NULL,              -- "trace", "span", "event"
 
     -- Content
@@ -219,12 +245,20 @@ CREATE TABLE comments (
 
     -- Timestamps
     created_at      TIMESTAMPTZ DEFAULT NOW(),
-    updated_at      TIMESTAMPTZ DEFAULT NOW()
+    updated_at      TIMESTAMPTZ DEFAULT NOW(),
+
+    -- Constraint: target_type must match which FK is populated
+    CONSTRAINT chk_comment_target CHECK (
+        (target_type = 'trace' AND span_db_id IS NULL AND event_db_id IS NULL) OR
+        (target_type = 'span' AND span_db_id IS NOT NULL AND event_db_id IS NULL) OR
+        (target_type = 'event' AND event_db_id IS NOT NULL)
+    )
 );
 
 -- Indexes
-CREATE INDEX idx_comments_trace_id ON comments(trace_id);
-CREATE INDEX idx_comments_span_id ON comments(span_id);
+CREATE INDEX idx_comments_trace_db_id ON comments(trace_db_id);
+CREATE INDEX idx_comments_span_db_id ON comments(span_db_id);
+CREATE INDEX idx_comments_event_db_id ON comments(event_db_id);
 CREATE INDEX idx_comments_author ON comments(author);
 CREATE INDEX idx_comments_tags ON comments USING GIN(tags);
 CREATE INDEX idx_comments_created_at ON comments(created_at DESC);
@@ -287,13 +321,15 @@ Example: ev_001x9y8_001
 
 ### Comment Targets
 
-Comments can be attached to three levels:
+Comments can be attached to three levels (using UUID FKs internally):
 
-| target_type | trace_id | span_id | event_id | Use case |
-|-------------|----------|---------|----------|----------|
+| target_type | trace_db_id | span_db_id | event_db_id | Use case |
+|-------------|-------------|------------|-------------|----------|
 | `trace` | required | NULL | NULL | Overall run feedback |
 | `span` | required | required | NULL | Feedback on specific operation |
 | `event` | required | optional | required | Feedback on specific message/action |
+
+The CHECK constraint ensures target_type matches which FK columns are populated.
 
 ### Comment Features
 
